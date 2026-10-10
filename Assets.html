@@ -1,0 +1,513 @@
+<style>
+:root{
+  --bg:#0D0B09;--sf:#17130F;--sf2:#211B15;--tx:#F2EBDD;--tx2:#B5A892;--tx3:#8F8270;
+  --am:#F0A93B;--amb:#F0A93B;--on-am:#0D0B09;--cu:#C27A45;--fo:#6FE0C5;--br:#FF6B4A;
+  --ln:#3A3027;--ln2:#7D705F;--glow:rgba(240,169,59,.22);
+  --f-d:'Bricolage Grotesque',system-ui,-apple-system,'Segoe UI',sans-serif;
+  --f-b:'Instrument Sans',system-ui,-apple-system,'Segoe UI',sans-serif;
+  --f-m:'JetBrains Mono',ui-monospace,Menlo,Consolas,monospace;
+}
+:root[data-theme='light']{
+  --bg:#F4EEE1;--sf:#FBF8F0;--sf2:#EFE6D4;--tx:#1E1812;--tx2:#5E5242;--tx3:#6F6150;
+  --am:#9A5B00;--cu:#8C5000;--fo:#096F5C;--br:#B8341A;--ln:#D9CDB6;--ln2:#8A7A66;--glow:rgba(154,91,0,.12);
+}
+@media (prefers-color-scheme: light){
+  :root:not([data-theme='dark']):not([data-theme='light']){
+    --bg:#F4EEE1;--sf:#FBF8F0;--sf2:#EFE6D4;--tx:#1E1812;--tx2:#5E5242;--tx3:#6F6150;
+    --am:#9A5B00;--cu:#8C5000;--fo:#096F5C;--br:#B8341A;--ln:#D9CDB6;--ln2:#8A7A66;--glow:rgba(154,91,0,.12);
+  }
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0;background:var(--bg);color:var(--tx);font-family:var(--f-b);font-size:16px;line-height:1.45;-webkit-tap-highlight-color:transparent}
+body{min-height:100vh}
+button{font-family:inherit;font-size:inherit;color:inherit;cursor:pointer}
+h1,h2,h3{font-family:var(--f-d);margin:0;line-height:1.1}
+h1{font-size:28px;font-weight:700}h2{font-size:22px;font-weight:700}h3{font-size:17px;font-weight:700}
+p{margin:0}
+.mono{font-family:var(--f-m)}
+.dim{color:var(--tx2)}.small{font-size:13px}.up{text-transform:uppercase;letter-spacing:.08em;font-size:12px;font-weight:600}
+.am{color:var(--am)}.fo{color:var(--fo)}.br{color:var(--br)}
+#app{max-width:640px;margin:0 auto;min-height:100vh;display:flex;flex-direction:column;position:relative}
+#glow{position:fixed;left:50%;top:60px;width:560px;height:420px;margin-left:-280px;background:radial-gradient(closest-side,var(--glow),transparent 70%);pointer-events:none;opacity:var(--lvl,.7);transition:opacity .12s}
+header.top{position:relative;display:flex;align-items:center;justify-content:space-between;padding:14px 16px 6px}
+.logo{font-family:var(--f-d);font-weight:700;font-size:24px;letter-spacing:-.02em;display:flex;align-items:center;gap:8px;background:none;border:0;padding:0;color:var(--tx)}
+.logo svg{flex:none}
+.chips{display:flex;gap:8px}
+.chip{display:flex;align-items:center;gap:6px;border:1.5px solid var(--ln2);border-radius:999px;padding:5px 11px;font-size:14px;font-weight:600;background:transparent;color:var(--tx)}
+.chip.am{border-color:var(--am);color:var(--am)}
+main{position:relative;flex:1;padding:8px 16px 96px}
+nav.tabs{position:fixed;left:0;right:0;bottom:0;z-index:5;background:var(--bg);border-top:1px solid var(--ln)}
+nav.tabs .in{max-width:640px;margin:0 auto;display:flex;justify-content:space-around;padding:6px 4px calc(10px + env(safe-area-inset-bottom))}
+nav.tabs button{flex:1;background:none;border:0;padding:8px 2px;font-size:13px;color:var(--tx2);display:flex;flex-direction:column;align-items:center;gap:3px;border-radius:10px;min-height:48px}
+nav.tabs button.on{color:var(--am);font-weight:600}
+nav.tabs button.on::after{content:'';display:block;width:22px;height:3px;border-radius:2px;background:var(--am);margin-top:1px}
+nav.tabs svg{width:22px;height:22px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+:focus-visible{outline:3px solid var(--am);outline-offset:2px}
+.card{background:var(--sf);border-radius:18px;padding:16px;margin-top:14px}
+.card.hl{border:1.5px solid var(--am)}
+.row{display:flex;align-items:center;gap:10px}.sp{justify-content:space-between}.wrap{flex-wrap:wrap}.col{display:flex;flex-direction:column;gap:6px}.grow{flex:1;min-width:0}
+.grid2{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+.grid3{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
+.btn{min-height:48px;padding:0 18px;border-radius:14px;border:0;background:var(--amb);color:var(--on-am);font-weight:600}
+.btn.o{background:transparent;border:1.5px solid var(--am);color:var(--am)}
+.btn.g{background:transparent;border:1.5px solid var(--ln2);color:var(--tx)}
+.btn.sm{min-height:40px;padding:0 14px;font-size:14px;border-radius:12px}
+.btn[disabled]{opacity:.45;cursor:not-allowed}
+.btn.full{width:100%}
+.pill{display:inline-flex;align-items:center;gap:6px;border-radius:999px;padding:4px 10px;font-size:13px;font-weight:600;border:1.5px solid var(--ln2);color:var(--tx2);background:transparent;min-height:34px}
+.pill.on{border-color:var(--am);color:var(--am)}
+.seg{display:flex;border:1.5px solid var(--ln2);border-radius:14px;overflow:hidden;margin-top:12px}
+.seg button{flex:1;background:transparent;border:0;padding:10px 6px;min-height:44px;color:var(--tx2);font-weight:600}
+.seg button.on{background:var(--amb);color:var(--on-am)}
+.bar{height:8px;border-radius:4px;background:var(--ln);overflow:hidden}
+.bar>i{display:block;height:100%;background:var(--amb);border-radius:4px}
+.ok{border:1.5px solid var(--fo);color:var(--fo);border-radius:12px;padding:8px 12px;font-weight:600;display:flex;gap:8px;align-items:center}
+.bad{border:1.5px solid var(--br);color:var(--br);border-radius:12px;padding:8px 12px;font-weight:600;display:flex;gap:8px;align-items:center}
+.info{border:1.5px solid var(--ln2);color:var(--tx);border-radius:12px;padding:8px 12px;display:flex;gap:8px;align-items:center}
+.gen{display:block;width:100%;text-align:left;background:var(--sf);border:0;border-radius:18px;padding:14px 16px 14px 20px;margin-top:10px;position:relative;overflow:hidden}
+.gen::before{content:'';position:absolute;left:0;top:0;bottom:0;width:6px;background:var(--gc,var(--am))}
+.les{display:flex;align-items:center;gap:12px;width:100%;text-align:left;background:var(--sf);border:0;border-radius:16px;padding:12px 14px;margin-top:8px}
+.les[disabled]{opacity:.55}
+.dot{width:30px;height:30px;border-radius:50%;flex:none;display:flex;align-items:center;justify-content:center;font-family:var(--f-m);font-size:13px;border:2px solid var(--ln2);color:var(--tx2)}
+.dot.d{background:var(--amb);border-color:var(--amb);color:var(--on-am)}
+.dot.c{border-color:var(--am);color:var(--am)}
+.stars{font-family:var(--f-m);color:var(--am);letter-spacing:2px}
+.steps{margin:10px 0 0;padding-left:20px}.steps li{margin:8px 0}
+.toast{position:fixed;left:50%;bottom:92px;transform:translateX(-50%);background:var(--tx);color:var(--bg);padding:10px 16px;border-radius:12px;font-weight:600;z-index:9;max-width:90vw;box-shadow:0 6px 24px rgba(0,0,0,.35)}
+/* afinador */
+.gauge{display:flex;flex-direction:column;align-items:center;margin-top:4px}
+.gauge svg{width:100%;max-width:420px;height:auto}
+.gnote{margin-top:-64px;display:flex;flex-direction:column;align-items:center;min-height:120px}
+.gnote b{font-family:var(--f-d);font-size:80px;line-height:.95}
+.strs{display:flex;justify-content:center;gap:5px;flex-wrap:wrap;margin-top:12px}.strs .pill{padding:4px 9px}
+.str{width:44px;height:44px;border-radius:50%;border:1.5px solid var(--ln2);background:transparent;color:var(--tx2);font-family:var(--f-m);font-size:16px}
+.str.on{background:var(--amb);border-color:var(--amb);color:var(--on-am);font-weight:600}
+.str.ok{background:transparent;border-color:var(--fo);color:var(--fo)}
+.meter{display:flex;gap:3px;align-items:flex-end;height:26px}.meter i{width:7px;border-radius:2px;background:var(--ln);height:6px}.meter i.on{background:var(--fo)}
+/* acordes / cifra */
+.chord{background:var(--sf);border:0;border-radius:16px;padding:8px 4px;color:var(--tx)}
+.chord svg{display:block;margin:0 auto}
+.cifra{margin-top:12px;display:flex;flex-direction:column;gap:16px}
+.lin{display:flex;flex-wrap:wrap;gap:2px 10px;align-items:flex-end;padding:4px 6px;border-radius:10px}
+.lin.cur{background:var(--sf)}
+.sg{display:flex;flex-direction:column;gap:2px}
+.sg .c{font-family:var(--f-m);font-weight:500;font-size:17px;color:var(--tx2);border-radius:6px;padding:0 7px;align-self:flex-start}
+.sg .t{font-size:19px;color:var(--tx3)}
+.sg.past .c{color:var(--fo)}.sg.past .t{color:var(--tx2)}
+.sg.now .c{background:var(--amb);color:var(--on-am)}.sg.now .t{color:var(--tx);font-weight:600;border-bottom:2px solid var(--am)}
+.lev{display:grid;grid-template-columns:repeat(8,1fr);gap:4px;margin-top:10px}
+.lev div{border:1.5px solid var(--ln2);border-radius:10px;text-align:center;padding:8px 0;font-family:var(--f-m);font-size:16px;color:var(--tx2)}
+.lev div.n{border-color:var(--ln);color:var(--tx3)}
+.lev div.on{background:var(--amb);border-color:var(--amb);color:var(--on-am);font-weight:600}
+.lev small{display:block;font-size:11px;color:var(--tx3);font-family:var(--f-b)}
+.beats{display:flex;gap:8px;justify-content:center;margin:12px 0}
+.beats i{width:18px;height:18px;border-radius:50%;border:2px solid var(--ln2)}
+.beats i.on{background:var(--amb);border-color:var(--amb)}.beats i.ac{border-color:var(--am)}
+/* mapa-braço */
+.neck{background:var(--sf);border-radius:18px;padding:10px 8px;margin-top:12px}
+.neck .h,.neck .r{display:flex}
+.neck .h span,.neck .r div{flex:1;text-align:center}
+.neck .h{padding-left:26px;font-size:11px;letter-spacing:-.02em;color:var(--tx2);font-weight:600;margin-bottom:6px}
+.neck .nut{height:5px;background:var(--cu);border-radius:2px;margin:0 0 0 26px}
+.neck .r{height:44px;border-bottom:2px solid var(--ln)}
+.neck .r .n{flex:none;width:26px;display:flex;align-items:center;font-family:var(--f-m);font-size:12px;color:var(--tx2)}
+.neck .r div.s{position:relative;display:flex;align-items:center;justify-content:center}
+.neck .r div.s::before{content:'';position:absolute;left:50%;top:0;bottom:0;width:2px;margin-left:-1px;background:var(--ln2)}
+.nk{position:relative;border-radius:50%;width:24px;height:24px}
+.nk.d{background:var(--amb);display:flex;align-items:center;justify-content:center}
+.nk.c{width:30px;height:30px;border:2.5px solid var(--am);background:var(--sf);box-shadow:0 0 14px var(--glow)}
+.nk.l{width:10px;height:10px;border-radius:2px;border:1.5px solid var(--ln2);background:var(--sf);transform:rotate(45deg)}
+.nk.x{width:16px;height:2px;border-radius:1px;background:var(--ln2)}
+.conq{display:flex;gap:10px;align-items:center;padding:10px 0;border-bottom:1px solid var(--ln)}
+.conq .ic{width:34px;height:34px;border-radius:50%;border:2px solid var(--ln2);flex:none;display:flex;align-items:center;justify-content:center}
+.conq.d .ic{background:var(--amb);border-color:var(--amb)}
+.conq:not(.d){opacity:.65}
+input[type=range]{width:100%;accent-color:var(--am);min-height:32px}
+select,input[type=number],textarea{width:100%;min-height:46px;border-radius:12px;border:1.5px solid var(--ln2);background:var(--sf);color:var(--tx);padding:8px 12px;font-family:inherit;font-size:16px}
+label.chk{display:flex;align-items:center;gap:10px;min-height:44px}
+input[type=checkbox]{width:22px;height:22px;accent-color:var(--am)}
+pre.log{background:var(--sf);border-radius:12px;padding:10px;font-family:var(--f-m);font-size:12px;white-space:pre-wrap;word-break:break-word;margin:8px 0 0;max-height:240px;overflow:auto}
+.hide{display:none!important}
+@media (prefers-reduced-motion: reduce){*{animation:none!important;transition:none!important}}
+</style>
+<script>
+/* ===== DSP: funções puras (altura, croma, acordes, síntese de teste) ===== */
+const DSP = (() => {
+  const NOTAS = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
+  const SOLFEJO = ['Dó', 'Dó#', 'Ré', 'Ré#', 'Mi', 'Fá', 'Fá#', 'Sol', 'Sol#', 'Lá', 'Lá#', 'Si'];
+  const CORDAS_ABERTAS = [40, 45, 50, 55, 59, 64]; // E2 A2 D3 G3 B3 E4 (MIDI), da corda 6 para a 1
+
+  function midiToFreq(m, a4) { return (a4 || 440) * Math.pow(2, (m - 69) / 12); }
+  function freqToMidi(f, a4) { return 69 + 12 * Math.log2(f / (a4 || 440)); }
+  function centsBetween(f, ref) { return 1200 * Math.log2(f / ref); }
+  function noteInfo(f, a4) {
+    const m = freqToMidi(f, a4);
+    const n = Math.round(m);
+    const pc = ((n % 12) + 12) % 12;
+    return { midi: n, pc: pc, nome: NOTAS[pc], solfejo: SOLFEJO[pc], oitava: Math.floor(n / 12) - 1, cents: (m - n) * 100 };
+  }
+  function nomeMidi(n) { return NOTAS[((n % 12) + 12) % 12] + (Math.floor(n / 12) - 1); }
+
+  /* ---- McLeod Pitch Method (NSDF) ---- */
+  function mpm(buf, sr, opt) {
+    opt = opt || {};
+    const minF = opt.minF || 60, maxF = opt.maxF || 1300, k = opt.k || 0.9, gate = opt.gate == null ? 0.008 : opt.gate;
+    const W = buf.length;
+    let e = 0;
+    for (let i = 0; i < W; i++) e += buf[i] * buf[i];
+    const rms = Math.sqrt(e / W);
+    if (rms < gate) return { freq: 0, clarity: 0, rms: rms };
+    const maxLag = Math.min(Math.floor(sr / minF), W - 64);
+    const minLag = Math.max(2, Math.floor(sr / maxF));
+    const nsdf = new Float32Array(maxLag + 2);
+    for (let tau = 0; tau <= maxLag + 1; tau++) {
+      let acf = 0, m = 0;
+      const n = W - tau;
+      for (let j = 0; j < n; j++) {
+        const a = buf[j], b = buf[j + tau];
+        acf += a * b;
+        m += a * a + b * b;
+      }
+      nsdf[tau] = m > 0 ? (2 * acf) / m : 0;
+    }
+    let i = 0;
+    while (i < maxLag && nsdf[i] > 0) i++; // fim do primeiro lóbulo positivo
+    const picos = [];
+    let curMax = -1, curIdx = -1;
+    for (; i <= maxLag; i++) {
+      if (nsdf[i] > 0) {
+        if (nsdf[i] > curMax) { curMax = nsdf[i]; curIdx = i; }
+      } else {
+        if (curIdx > 0) picos.push(curIdx);
+        curMax = -1; curIdx = -1;
+      }
+    }
+    if (curIdx > 0) picos.push(curIdx);
+    let maior = 0;
+    const validos = [];
+    for (const p of picos) {
+      if (p < minLag) continue;
+      validos.push(p);
+      if (nsdf[p] > maior) maior = nsdf[p];
+    }
+    if (!validos.length) return { freq: 0, clarity: 0, rms: rms };
+    let escolhido = validos[0];
+    for (const p of validos) { if (nsdf[p] >= k * maior) { escolhido = p; break; } }
+    const y0 = nsdf[escolhido - 1], y1 = nsdf[escolhido], y2 = nsdf[escolhido + 1];
+    const den = y0 - 2 * y1 + y2;
+    const shift = den !== 0 ? (0.5 * (y0 - y2)) / den : 0;
+    const lag = escolhido + shift;
+    const clar = y1 - 0.25 * (y0 - y2) * shift;
+    return { freq: sr / lag, clarity: Math.min(1, clar), rms: rms };
+  }
+
+  /* ---- Croma (12 classes de altura) a partir de espectro de magnitude linear ---- */
+  function chroma(mag, sr, fftSize, fmin, fmax) {
+    fmin = fmin || 80; fmax = fmax || 2200;
+    const c = new Float32Array(12);
+    const binHz = sr / fftSize;
+    const k0 = Math.max(1, Math.ceil(fmin / binHz)), k1 = Math.min(mag.length - 1, Math.floor(fmax / binHz));
+    for (let k = k0; k <= k1; k++) {
+      const m = 69 + 12 * Math.log2((k * binHz) / 440);
+      const n = Math.round(m);
+      if (Math.abs(m - n) > 0.34) continue; // ignora vazamento entre semitons
+      c[((n % 12) + 12) % 12] += mag[k];
+    }
+    return c;
+  }
+  function dbParaMag(db) { const out = new Float32Array(db.length); for (let i = 0; i < db.length; i++) out[i] = Math.pow(10, db[i] / 20); return out; }
+
+  /* ---- Modelo (template) de acorde a partir das casas, com harmônicos ---- */
+  function notasDoAcorde(frets) {
+    const n = [];
+    for (let s = 0; s < 6; s++) if (frets[s] >= 0) n.push(CORDAS_ABERTAS[s] + frets[s]);
+    return n;
+  }
+  function template(frets) {
+    const t = new Float32Array(12);
+    const notas = notasDoAcorde(frets);
+    notas.forEach((m, idx) => {
+      const peso = idx === 0 ? 1.25 : 1; // baixo pesa um pouco mais
+      for (let h = 1; h <= 6; h++) {
+        const mh = m + 12 * Math.log2(h);
+        const pc = ((Math.round(mh) % 12) + 12) % 12;
+        t[pc] += peso / h;
+      }
+    });
+    return t;
+  }
+  function cosseno(a, b) {
+    let d = 0, na = 0, nb = 0;
+    for (let i = 0; i < 12; i++) { d += a[i] * b[i]; na += a[i] * a[i]; nb += b[i] * b[i]; }
+    return na > 0 && nb > 0 ? d / Math.sqrt(na * nb) : 0;
+  }
+  // vocab: { 'G': templateFloat32, ... } -> melhor acorde e similaridades
+  function classificar(c, vocab) {
+    let best = null, bs = 0, second = 0;
+    const sims = {};
+    for (const nome in vocab) {
+      const s = cosseno(c, vocab[nome]);
+      sims[nome] = s;
+      if (s > bs) { second = bs; bs = s; best = nome; } else if (s > second) second = s;
+    }
+    return { best: best, sim: bs, margem: bs - second, sims: sims };
+  }
+
+  /* ---- Síntese aditiva (usada nos testes e como gerador offline) ---- */
+  function pluckBuffer(freq, sr, dur, vel) {
+    const n = Math.floor(sr * dur), out = new Float32Array(n);
+    const hs = Math.min(8, Math.floor((sr / 2 - 100) / freq));
+    for (let h = 1; h <= hs; h++) {
+      const amp = (vel || 0.3) / Math.pow(h, 1.1), tau = dur / (1.6 + 0.7 * h), w = (2 * Math.PI * freq * h) / sr;
+      for (let i = 0; i < n; i++) out[i] += amp * Math.exp(-i / sr / tau * 3) * Math.sin(w * i);
+    }
+    return out;
+  }
+
+  /* ---- Mediana ---- */
+  function mediana(arr) { const a = arr.slice().sort((x, y) => x - y); const m = a.length >> 1; return a.length % 2 ? a[m] : (a[m - 1] + a[m]) / 2; }
+
+  return { NOTAS, SOLFEJO, CORDAS_ABERTAS, midiToFreq, freqToMidi, centsBetween, noteInfo, nomeMidi, mpm, chroma, dbParaMag, notasDoAcorde, template, cosseno, classificar, pluckBuffer, mediana };
+})();
+if (typeof module !== 'undefined') module.exports = DSP;
+
+/* ===== DADOS DO AFINADIM (todo o conteúdo é original do projeto) ===== */
+const DATA = (() => {
+  // Casas por corda, da 6ª (grave) para a 1ª (aguda). -1 = corda não tocada, 0 = solta.
+  const ACORDES = {
+    'C': { f: [-1, 3, 2, 0, 1, 0], d: [0, 3, 2, 0, 1, 0], tipo: 'maior' },
+    'D': { f: [-1, -1, 0, 2, 3, 2], d: [0, 0, 0, 1, 3, 2], tipo: 'maior' },
+    'E': { f: [0, 2, 2, 1, 0, 0], d: [0, 2, 3, 1, 0, 0], tipo: 'maior' },
+    'G': { f: [3, 2, 0, 0, 0, 3], d: [2, 1, 0, 0, 0, 3], tipo: 'maior' },
+    'A': { f: [-1, 0, 2, 2, 2, 0], d: [0, 0, 1, 2, 3, 0], tipo: 'maior' },
+    'F': { f: [1, 3, 3, 2, 1, 1], d: [1, 3, 4, 2, 1, 1], tipo: 'maior', pestana: 1 },
+    'Bb': { f: [-1, 1, 3, 3, 3, 1], d: [0, 1, 2, 3, 4, 1], tipo: 'maior', pestana: 1 },
+    'B': { f: [-1, 2, 4, 4, 4, 2], d: [0, 1, 2, 3, 4, 1], tipo: 'maior', pestana: 2 },
+    'Am': { f: [-1, 0, 2, 2, 1, 0], d: [0, 0, 2, 3, 1, 0], tipo: 'menor' },
+    'Dm': { f: [-1, -1, 0, 2, 3, 1], d: [0, 0, 0, 2, 3, 1], tipo: 'menor' },
+    'Em': { f: [0, 2, 2, 0, 0, 0], d: [0, 2, 3, 0, 0, 0], tipo: 'menor' },
+    'Bm': { f: [-1, 2, 4, 4, 3, 2], d: [0, 1, 3, 4, 2, 1], tipo: 'menor', pestana: 2 },
+    'F#m': { f: [2, 4, 4, 2, 2, 2], d: [1, 3, 4, 1, 1, 1], tipo: 'menor', pestana: 2 },
+    'C7': { f: [-1, 3, 2, 3, 1, 0], d: [0, 3, 2, 4, 1, 0], tipo: 'sétima' },
+    'D7': { f: [-1, -1, 0, 2, 1, 2], d: [0, 0, 0, 2, 1, 3], tipo: 'sétima' },
+    'E7': { f: [0, 2, 0, 1, 0, 0], d: [0, 2, 0, 1, 0, 0], tipo: 'sétima' },
+    'G7': { f: [3, 2, 0, 0, 0, 1], d: [3, 2, 0, 0, 0, 1], tipo: 'sétima' },
+    'A7': { f: [-1, 0, 2, 0, 2, 0], d: [0, 0, 2, 0, 3, 0], tipo: 'sétima' },
+    'B7': { f: [-1, 2, 1, 2, 0, 2], d: [0, 2, 1, 3, 0, 4], tipo: 'sétima' },
+    'Am7': { f: [-1, 0, 2, 0, 1, 0], d: [0, 0, 2, 0, 1, 0], tipo: 'sétima' },
+    'Dm7': { f: [-1, -1, 0, 2, 1, 1], d: [0, 0, 0, 2, 1, 1], tipo: 'sétima' },
+    'Em7': { f: [0, 2, 0, 0, 0, 0], d: [0, 2, 0, 0, 0, 0], tipo: 'sétima' },
+    'Cmaj7': { f: [-1, 3, 2, 0, 0, 0], d: [0, 3, 2, 0, 0, 0], tipo: 'sétima' },
+    'Fmaj7': { f: [-1, -1, 3, 2, 1, 0], d: [0, 0, 3, 2, 1, 0], tipo: 'sétima' },
+    'Gmaj7': { f: [3, 2, 0, 0, 0, 2], d: [3, 2, 0, 0, 0, 1], tipo: 'sétima' },
+    'Asus4': { f: [-1, 0, 2, 2, 3, 0], d: [0, 0, 1, 2, 4, 0], tipo: 'suspenso' },
+    'Dsus4': { f: [-1, -1, 0, 2, 3, 3], d: [0, 0, 0, 1, 3, 4], tipo: 'suspenso' },
+    'Cadd9': { f: [-1, 3, 2, 0, 3, 0], d: [0, 2, 1, 0, 3, 0], tipo: 'suspenso' },
+    'E5': { f: [0, 2, 2, -1, -1, -1], d: [0, 1, 2, 0, 0, 0], tipo: 'power' },
+    'A5': { f: [-1, 0, 2, 2, -1, -1], d: [0, 0, 1, 2, 0, 0], tipo: 'power' },
+    'D5': { f: [-1, -1, 0, 2, 3, -1], d: [0, 0, 0, 1, 2, 0], tipo: 'power' },
+    'G5': { f: [3, 5, 5, -1, -1, -1], d: [1, 3, 4, 0, 0, 0], tipo: 'power' },
+    'C5': { f: [-1, 3, 5, 5, -1, -1], d: [0, 1, 3, 4, 0, 0], tipo: 'power' },
+    'B5': { f: [-1, 2, 4, 4, -1, -1], d: [0, 1, 3, 4, 0, 0], tipo: 'power' }
+  };
+
+  // Levadas: D ↓ , U ↑ , x abafado , B nota grave (baixo) , C acorde curto , - pausa. 8 passos = 1 compasso de colcheias (1 e 2 e 3 e 4 e).
+  const LEVADAS = {
+    sertaneja: { nome: 'Batida sertaneja (estudo base)', seq: ['D', '-', 'D', 'U', '-', 'U', 'D', 'U'], bpm: 92, dica: 'Palheta ou polegar firme no 1 e no 3; as setas para cima são leves. Comece lento e conte em voz alta: 1 e 2 e 3 e 4 e.' },
+    pagode: { nome: 'Balanço de pagode (estudo base)', seq: ['D', 'x', 'U', 'x', 'D', 'U', 'x', 'U'], bpm: 92, dica: 'O abafado (x) é a palma da mão direita tocando nas cordas sem deixar soar a nota: é ele que dá o balanço. Procure ouvir sambas e pagodes e imitar a mão.' },
+    baiao: { nome: 'Baião de violão (estudo base)', seq: ['B', '-', 'C', '-', 'B', '-', 'C', 'C'], bpm: 100, dica: 'Alterne o baixo (nota grave do acorde) com o acorde curto, como se o violão fosse zabumba e triângulo ao mesmo tempo.' },
+    louvor: { nome: 'Batida de louvor (estudo base)', seq: ['D', '-', 'D', 'U', 'D', 'U', 'D', 'U'], bpm: 72, dica: 'Toque com dinâmica: suave nas estrofes e mais forte no refrão. Segure o ritmo estável, o andamento é lento.' },
+    funk: { nome: 'Pulso de funk 3-3-2 (estudo base)', seq: ['D', '-', '-', 'x', '-', '-', 'x', '-'], bpm: 130, dica: 'A divisão 3+3+2 forma o padrão base do funk: ataques nos passos 1, 4 e 7. Mantenha a mão esquerda leve para abafar entre as batidas.' },
+    samba: { nome: 'Samba de violão (estudo base)', seq: ['B', 'x', 'C', 'x', 'B', 'x', 'C', 'U'], bpm: 100, dica: 'Pense em um pandeiro: o grave marca o tempo e os abafados enchem os espaços. A mão direita nunca para de se mover.' },
+    bossa: { nome: 'Bossa nova simplificada (estudo base)', seq: ['B', '-', '-', 'C', 'B', '-', 'C', '-'], bpm: 120, dica: 'Versão simplificada para estudar: o polegar faz o grave (raiz e quinta) e os dedos batem o acorde de forma sincopada. O padrão completo de dois compassos virá depois.' },
+    rock: { nome: 'Palhetadas de rock (estudo base)', seq: ['D', 'D', 'D', 'D', 'D', 'D', 'D', 'D'], bpm: 120, dica: 'Palhetada alternada nas colcheias, com a lateral da mão direita encostada na ponte para abafar levemente (palm mute) e depois soltar.' }
+  };
+
+  // Músicas originais do projeto. Cada segmento: c = acorde, t = trecho da letra, b = tempos.
+  const MUSICAS = {
+    's-garoa': { titulo: 'Garoa na Janela', genero: 'sertanejo', nivel: 1, bpm: 92, tom: 'G', levada: 'sertaneja',
+      linhas: [
+        [{ c: 'G', t: 'Garoa na janela,' }, { c: 'D', t: 'saudade no ar' }],
+        [{ c: 'Em', t: 'eu ligo pra você e' }, { c: 'C', t: 'não sei o que falar' }],
+        [{ c: 'G', t: 'Se o seu coração' }, { c: 'D', t: 'ainda quer voltar' }],
+        [{ c: 'Em', t: 'deixa a porta aberta' }, { c: 'C', t: 'que eu vou chegar' }]
+      ] },
+    's-resenha': { titulo: 'Resenha de Quintal', genero: 'pagode', nivel: 2, bpm: 92, tom: 'C', levada: 'pagode',
+      linhas: [
+        [{ c: 'Cmaj7', t: 'Tem resenha no quintal,' }, { c: 'A7', t: 'cerveja e violão' }],
+        [{ c: 'Dm7', t: 'você chega sem avisar,' }, { c: 'G7', t: 'rouba a minha atenção' }],
+        [{ c: 'Cmaj7', t: 'Se o samba pede pra ficar,' }, { c: 'A7', t: 'eu não vou negar' }],
+        [{ c: 'Dm7', t: 'vem dançar comigo agora,' }, { c: 'G7', t: 'deixa o tempo' }, { c: 'Cmaj7', t: 'passar' }]
+      ] },
+    's-forro': { titulo: 'Forró de Beira de Estrada', genero: 'forro', nivel: 1, bpm: 100, tom: 'G', levada: 'baiao',
+      linhas: [
+        [{ c: 'G', t: 'Sanfona chorando na' }, { c: 'C', t: 'beira da estrada' }],
+        [{ c: 'D', t: 'a lua de prata, a' }, { c: 'G', t: 'noite estrelada' }],
+        [{ c: 'G', t: 'Dança comigo, cabocla' }, { c: 'C', t: 'bonita' }],
+        [{ c: 'D', t: 'que o forró da gente não' }, { c: 'G', t: 'se acaba, não' }]
+      ] },
+    's-louvor': { titulo: 'Tua Paz me Sustenta', genero: 'gospel', nivel: 2, bpm: 72, tom: 'C', levada: 'louvor',
+      linhas: [
+        [{ c: 'C', t: 'Quando o dia é de tempestade,' }, { c: 'G', t: 'tua paz me sustenta' }],
+        [{ c: 'Am', t: 'eu descanso na verdade,' }, { c: 'F', t: 'minha alma se alimenta' }],
+        [{ c: 'C', t: 'Tu és fiel em tudo,' }, { c: 'G', t: 'nada me faltará' }],
+        [{ c: 'Am', t: 'canto com a minha voz,' }, { c: 'F', t: 'teu amor me guardará' }]
+      ] },
+    's-madrugada': { titulo: 'Madrugada de Verão', genero: 'funk', nivel: 2, bpm: 130, tom: 'Am', levada: 'funk',
+      linhas: [
+        [{ c: 'Am', t: 'Madrugada de verão,' }, { c: 'F', t: 'a cidade acordada' }],
+        [{ c: 'C', t: 'ela dança sem pressa,' }, { c: 'G', t: 'ninguém pergunta nada' }],
+        [{ c: 'Am', t: 'no balanço do grave,' }, { c: 'F', t: 'o tempo parou' }],
+        [{ c: 'C', t: 'quem chegou pra ficar' }, { c: 'G', t: 'nunca mais se mandou' }]
+      ] },
+    's-feira': { titulo: 'Samba da Feira', genero: 'samba', nivel: 1, bpm: 100, tom: 'Am', levada: 'samba',
+      linhas: [
+        [{ c: 'Am', t: 'Foi na feira de domingo' }, { c: 'E7', t: 'que eu te vi passar' }],
+        [{ c: 'Dm', t: 'com cesto de frutas e' }, { c: 'E7', t: 'um sorriso de cantar' }],
+        [{ c: 'Am', t: 'Meu pandeiro foi chamando,' }, { c: 'E7', t: 'meu pé foi atrás' }],
+        [{ c: 'Dm', t: 'quem não sambou nessa vida' }, { c: 'E7', t: 'não sabe' }, { c: 'Am', t: 'o que perde' }]
+      ] },
+    's-bossa': { titulo: 'Azul de Janeiro', genero: 'mpb', nivel: 2, bpm: 120, tom: 'C', levada: 'bossa',
+      linhas: [
+        [{ c: 'Dm7', t: 'Janeiro abre a janela,' }, { c: 'G7', t: 'o mar é um vai e vem' }],
+        [{ c: 'Cmaj7', t: 'a tarde desce em azul,' }, { c: 'Fmaj7', t: 'e o vento fala bem' }],
+        [{ c: 'Dm7', t: 'Guarda o meu silêncio,' }, { c: 'G7', t: 'que o dia vai render' }],
+        [{ c: 'Cmaj7', t: 'quem sabe a vida inteira' }, { c: 'A7', t: 'cabe nesse querer' }]
+      ] },
+    's-estrada': { titulo: 'Estrada de Poeira', genero: 'rock', nivel: 1, bpm: 120, tom: 'A', levada: 'rock',
+      linhas: [
+        [{ c: 'A5', t: 'Estrada de poeira,' }, { c: 'D5', t: 'motor roncando alto' }],
+        [{ c: 'A5', t: 'a noite é nossa pista,' }, { c: 'E5', t: 'vamos de asfalto' }],
+        [{ c: 'D5', t: 'Sem mapa e sem destino,' }, { c: 'A5', t: 'o rádio no talo' }],
+        [{ c: 'E5', t: 'quem tem guitarra afinada' }, { c: 'A5', t: 'nunca vai parar' }]
+      ] }
+  };
+
+  const GENEROS = [
+    { id: 'sertanejo', nome: 'Sertanejo', grupo: 'alta', cor: '#F0A93B', musica: 's-garoa', levada: 'sertaneja', niv: 1,
+      resumo: 'Líder de preferência no Brasil: 26% na pesquisa Globo/Quaest (2026) e topo do streaming no 1º semestre de 2026 (Pro-Música).',
+      dica: { violao: 'Violão de cordas de aço ou nylon: foque em trocas limpas entre G, D, Em e C e em uma batida constante.', guitarra: 'Na guitarra, use som limpo com um pouco de brilho e a mesma batida; depois explore os solos em terças.' } },
+    { id: 'pagode', nome: 'Pagode atual', grupo: 'alta', cor: '#C27A45', musica: 's-resenha', levada: 'pagode', niv: 2,
+      resumo: 'O pagode brasileiro atual (romântico e de mesa) liderou as músicas mais ouvidas de 2025 (Pro-Música/BMAT). Aqui: harmonia com sétimas e mão direita abafada.',
+      dica: { violao: 'Violão (inclusive de 7 cordas): sétimas e uma mão direita muito solta. Ouvir muito é parte do estudo.', guitarra: 'Guitarra limpa e curta, com o controle de tom mais fechado, imita o cavaquinho e o violão da roda.' } },
+    { id: 'forro', nome: 'Forró, piseiro e arrocha', grupo: 'alta', cor: '#6FE0C5', musica: 's-forro', levada: 'baiao', niv: 1,
+      resumo: 'Forró, piseiro e arrocha somam 10% da preferência nacional (Quaest 2026) e aparecem com frequência no Top 50 de 2025.',
+      dica: { violao: 'O violão no forró alterna baixo e acorde. Comece só com G, C e D.', guitarra: 'Na guitarra, frases curtas em notas dobradas (terças) respondem à sanfona.' } },
+    { id: 'gospel', nome: 'Gospel e louvor', grupo: 'alta', cor: '#B7A6FF', musica: 's-louvor', levada: 'louvor', niv: 2,
+      resumo: 'Música gospel é a 2ª preferência nacional, com 16% (Quaest 2026). O violão é o instrumento central nos grupos de louvor.',
+      dica: { violao: 'Aprenda o F (pestana) ou use Fmaj7 como substituto fácil; trabalhe a dinâmica entre estrofe e refrão.', guitarra: 'Na guitarra, pad de acordes abertos e arpejos com delay suave sustentam o louvor.' } },
+    { id: 'funk', nome: 'Funk', grupo: 'alta', cor: '#FF6B4A', musica: 's-madrugada', levada: 'funk', niv: 2,
+      resumo: 'Funk ocupa o 2º e o 3º lugares no streaming do 1º semestre de 2026 (Pro-Música). No violão e na guitarra, o foco é ritmo, abafado e harmonia simples.',
+      dica: { violao: 'Violão: ataques curtos e abafados no padrão 3-3-2, com poucos acordes (Am, F, C, G).', guitarra: 'Guitarra: riffs de notas únicas e acordes abafados seguindo o pulso do grave.' } },
+    { id: 'samba', nome: 'Samba raiz', grupo: 'classico', cor: '#F0A93B', musica: 's-feira', levada: 'samba', niv: 1,
+      resumo: 'Um dos alicerces da música brasileira. Pulso, mão direita e acordes simples (Am, E7, Dm) já formam sambas inteiros.',
+      dica: { violao: 'Mão direita viva e polegar marcando o grave. Tente tocar com um pandeiro gravado.', guitarra: 'Na guitarra, som limpo, acordes curtos e atenção ao tempo.' } },
+    { id: 'mpb', nome: 'MPB e bossa nova', grupo: 'classico', cor: '#6FE0C5', musica: 's-bossa', levada: 'bossa', niv: 2,
+      resumo: 'A MPB tem 8% da preferência nacional (Quaest 2026). Na bossa nova, acordes com sétima e maior e uma levada sincopada são a base.',
+      dica: { violao: 'Violão de nylon e polegar independente. Treine ii-V-I (Dm7, G7, Cmaj7).', guitarra: 'Na guitarra, som bem limpo e macio, tocando com o polegar ou com a palheta suave.' } },
+    { id: 'rock', nome: 'Rock clássico', grupo: 'classico', cor: '#FF6B4A', musica: 's-estrada', levada: 'rock', niv: 1,
+      resumo: 'Base do rock: power chords (acordes de duas ou três notas), palhetada alternada e palm mute. Porta de entrada para blues, hard rock e metal.',
+      dica: { violao: 'No violão, os power chords soam melhor com cordas de aço. Treine a palhetada alternada.', guitarra: 'Na guitarra, ganho médio (crunch) é melhor que muita distorção para conferir cada nota.' } }
+  ];
+
+  const FUNDAMENTOS = [
+    { id: 'f-1', nivel: 1, titulo: 'Conheça seu instrumento', passos: [
+      'As cordas são numeradas de 1 a 6, da mais fina (aguda) para a mais grossa (grave). Em afinação padrão: 6ª Mi, 5ª Lá, 4ª Ré, 3ª Sol, 2ª Si, 1ª Mi.',
+      'As casas (espaços entre os trastes) são numeradas a partir da cabeça do braço. Casa 1 é a mais próxima.',
+      'Os dedos da mão esquerda são numerados: 1 indicador, 2 médio, 3 anelar, 4 mindinho. O polegar fica atrás do braço.',
+      'Sente-se com as costas retas, o instrumento apoiado na perna e o braço levemente inclinado para cima. Mantenha os ombros soltos.',
+      'Pressione a corda perto do traste (não em cima dele) com a ponta do dedo, não com a polpa. Se zumbir, ajuste a posição.'] },
+    { id: 'f-2', nivel: 1, titulo: 'Sua primeira afinação', acao: 'ouvido', passos: [
+      'Antes de qualquer lição, afine. Instrumento desafinado ensina o ouvido errado.',
+      'Abra a área Ouvido e deixe o modo guiado em Afinar. Toque uma corda solta por vez.',
+      'Sempre chegue na nota subindo: se estiver alta, afrouxe um pouco abaixo da nota e depois aperte até o ponteiro centrar.',
+      'Cordas novas esticam e desafinam com facilidade nos primeiros dias; reafine várias vezes.'] },
+    { id: 'f-3', nivel: 1, titulo: 'Pulso: contar 1, 2, 3, 4', acao: 'ritmo', passos: [
+      'Ritmo é a parte mais importante. Use o metrônomo na área Ritmo a 60 bpm.',
+      'Conte em voz alta 1, 2, 3, 4 e bata o pé no chão a cada número.',
+      'Toque uma corda solta no tempo, uma batida por número, por um minuto sem errar.',
+      'Aumente 4 bpm só quando o minuto estiver tranquilo.'] },
+    { id: 'f-4', nivel: 1, titulo: 'Como ler um diagrama de acordes', acao: 'acordes', passos: [
+      'Cada linha vertical é uma corda: a da esquerda é a 6ª (grave), a da direita é a 1ª (aguda).',
+      'Cada linha horizontal é um traste. Os pontos mostram onde colocar os dedos e o número dentro do ponto indica o dedo.',
+      'O O em cima da corda significa solta; o X significa não tocar essa corda.',
+      'Na área Acordes, toque no diagrama para ouvir o acorde e comparar com o seu.'] },
+    { id: 'f-5', nivel: 1, titulo: 'Primeiros acordes: Em e Am', acorde: ['Em', 'Am'], passos: [
+      'Em e Am usam só dois ou três dedos e são o melhor ponto de partida.',
+      'Monte o Em: dedo 2 na casa 2 da 5ª corda e dedo 3 na casa 2 da 4ª corda. Toque as seis cordas.',
+      'Monte o Am: dedo 2 na casa 2 da 4ª corda, dedo 3 na casa 2 da 3ª e dedo 1 na casa 1 da 2ª. Toque da 5ª para baixo.',
+      'Alterne Em e Am no treino de troca (área Acordes) por um minuto.'] },
+    { id: 'f-6', nivel: 1, titulo: 'Rotina de estudo: 10 minutos por dia', passos: [
+      'Dez minutos todo dia valem mais do que uma hora por semana.',
+      'Modelo de 10 minutos: 2 de afinação e aquecimento, 3 de acordes, 3 de música, 2 de ouvido.',
+      'Pare se sentir dor. Dedos doloridos nos primeiros dias são normais, mas dor forte no pulso ou no braço não.',
+      'Use a missão do dia na tela Hoje: ela monta esse treino para você.'] },
+    { id: 'i-1', nivel: 2, titulo: 'Pestana: o acorde F', acorde: ['F', 'Bm'], passos: [
+      'Na pestana, o indicador pressiona todas as cordas na mesma casa. Use a lateral do dedo, não a parte plana.',
+      'Posicione o dedo bem perto do traste e traga o cotovelo ligeiramente para o corpo.',
+      'Treine apertando só as duas cordas finas, depois três, e assim por diante.',
+      'Enquanto a pestana não sai, use o Fmaj7 (sem pestana) como substituto.'] },
+    { id: 'i-2', nivel: 2, titulo: 'Acordes com sétima', acorde: ['Am7', 'Dm7', 'Cmaj7', 'G7'], passos: [
+      'Sétimas dão cor ao acorde. Maj7 soa suave, 7 (dominante) cria tensão, m7 soa aberto.',
+      'Ouça a diferença: toque C e depois Cmaj7; D e depois D7; Am e depois Am7.',
+      'A sequência Dm7, G7, Cmaj7 é o ii-V-I, a base de milhares de músicas.'] },
+    { id: 'i-3', nivel: 2, titulo: 'Troca rápida de acordes', acao: 'acordes', passos: [
+      'Antes de tirar os dedos do acorde atual, visualize o próximo.',
+      'Procure dedos em comum (dedo-guia) entre dois acordes: eles ajudam a trocar mais rápido.',
+      'Faça o treino de troca por um minuto e anote o número de trocas limpas. O objetivo é bater o seu recorde, não a pressa.'] },
+    { id: 'a-1', nivel: 3, titulo: 'Escala pentatônica menor', passos: [
+      'A pentatônica menor tem 5 notas por oitava e é a base de solos de blues, rock e música regional.',
+      'Em Lá menor, a caixa 1 começa na casa 5: 6ª corda casas 5 e 8; 5ª corda 5 e 7; 4ª corda 5 e 7; 3ª corda 5 e 7; 2ª corda 5 e 8; 1ª corda 5 e 8.',
+      'Toque devagar, subindo e descendo, com o metrônomo, uma nota por tempo.',
+      'Improvise sobre um acorde de Am (use a música Samba da Feira ou Madrugada de Verão como base).'] },
+    { id: 'a-2', nivel: 3, titulo: 'Ouvido: o afinador como assistente', acao: 'ouvido', passos: [
+      'No nível avançado, o afinador vira conferência. Afine de ouvido primeiro e use o aparelho só no final.',
+      'Treine a afinação às cegas na área Ouvido até ficar abaixo de 8 cents de erro.',
+      'Confira a entonação: compare o harmônico da casa 12 com a nota pressionada na casa 12. Se forem diferentes, o ajuste da ponte pode estar errado.'] }
+  ];
+
+  // Aprendizado de afinação por ouvido (nível = missão na trilha "Ouvido")
+  const OUVIDO_NIVEIS = [
+    { n: 0, nome: 'Primeiro contato', texto: 'Cordas afinam por tensão: apertar a tarraxa sobe a nota, afrouxar desce. Cordas novas esticam. Chegue sempre na nota por baixo (subindo) para a afinação se manter estável.', missao: 'Leia e toque em Entendi.' },
+    { n: 1, nome: 'Referência', texto: 'Ouça uma nota de referência e depois a sua. Só decida uma coisa: a sua está mais alta ou mais baixa? É o primeiro passo do ouvido.', missao: 'No jogo Alto ou baixo?, alcance diferença de até 25 cents.' },
+    { n: 2, nome: 'Batimentos', texto: 'Quando duas notas estão quase iguais, o som pulsa (batimentos). A frequência do pulso é a diferença entre as duas notas. Quanto mais devagar o pulso, mais perto de afinado. 5 cents em Mi grave (82 Hz) dão cerca de 0,24 pulsos por segundo; em Lá (110 Hz), cerca de 0,32.', missao: 'No jogo Bateu ou não?, acerte diferenças de até 8 cents.' },
+    { n: 3, nome: 'Quinta casa', texto: 'Toque a casa 5 da corda mais grave junto com a corda solta seguinte. Elas devem soar iguais. Ouça o pulso e gire a tarraxa até ele sumir. Exceção: da 3ª (Sol) para a 2ª (Si) use a casa 4.', missao: 'Afine 3 cordas com o afinador (modo guiado) ou marque que fez no seu instrumento.' },
+    { n: 4, nome: 'Harmônicos', texto: 'Toque levemente a corda sobre a casa 5 ou 7 (sem apertar) para soar um harmônico. Compare o harmônico da casa 7 de uma corda com o da casa 5 da corda seguinte: devem ser iguais. Os batimentos aparecem bem limpos.', missao: 'Experimente em duas cordas e toque em Entendi.' },
+    { n: 5, nome: 'Às cegas', texto: 'Agora, sem olhar o ponteiro. Afine a corda de ouvido, toque, e só então revele o resultado. O erro em cents mostra o quanto o seu ouvido evoluiu.', missao: 'Afine às cegas 3 cordas com erro de até 15 cents.' },
+    { n: 6, nome: 'Cantar a nota', texto: 'Quem consegue cantar a nota afina melhor. Ouça a referência e cante a mesma altura (a oitava não importa). O microfone confere.', missao: 'Cante 3 notas corretamente.' },
+    { n: 7, nome: 'Violão inteiro', texto: 'Afine as seis cordas só de ouvido e use o afinador apenas para conferir no final. É a meta do Afinadim: o afinador vira ajuste fino.', missao: 'Faça 6 afinações às cegas com erro de até 8 cents.' }
+  ];
+
+  const AFINACOES = {
+    padrao: { nome: 'Padrão (E A D G B E)', notas: [40, 45, 50, 55, 59, 64] },
+    dropd: { nome: 'Drop D (D A D G B E)', notas: [38, 45, 50, 55, 59, 64] },
+    meiotom: { nome: 'Meio tom abaixo', notas: [39, 44, 49, 54, 58, 63] },
+    dadgad: { nome: 'DADGAD', notas: [38, 45, 50, 55, 57, 62] },
+    opeg: { nome: 'Open G (D G D G B D)', notas: [38, 43, 50, 55, 59, 62] },
+    sete: { nome: '7 cordas (B E A D G B E)', notas: [35, 40, 45, 50, 55, 59, 64] }
+  };
+
+  const PATENTES = [
+    { nome: 'Carvão', min: 0 }, { nome: 'Brasa', min: 300 }, { nome: 'Chama', min: 1000 },
+    { nome: 'Fogueira', min: 2500 }, { nome: 'Rei da Roda', min: 5000 }
+  ];
+
+  const CONQUISTAS = [
+    { id: 'afinou', nome: 'Primeira afinação', desc: 'Afine uma corda com o afinador.' },
+    { id: 'cego-bronze', nome: 'Ouvido de bronze', desc: 'Afine às cegas com até 15 cents de erro.' },
+    { id: 'cego-ouro', nome: 'Ouvido de ouro', desc: 'Afine às cegas com até 5 cents de erro.' },
+    { id: 'dias3', nome: 'Três dias seguidos', desc: 'Pratique 3 dias na sequência.' },
+    { id: 'dias7', nome: 'Uma semana de brasa', desc: 'Pratique 7 dias na sequência.' },
+    { id: 'dias30', nome: 'Mês de fogueira', desc: 'Pratique 30 dias na sequência.' },
+    { id: 'musica1', nome: 'Primeira música', desc: 'Conclua uma música.' },
+    { id: 'estrelas3', nome: 'Limpinho', desc: 'Conquiste 3 estrelas em uma música.' },
+    { id: 'troca30', nome: 'Dedos ágeis', desc: 'Faça 30 trocas limpas de acorde em um minuto.' },
+    { id: 'ecletico', nome: 'Eclético', desc: 'Conclua lições de 5 gêneros diferentes.' },
+    { id: 'rei', nome: 'Rei da Roda', desc: 'Alcance a patente máxima.' }
+  ];
+
+  return { ACORDES, LEVADAS, MUSICAS, GENEROS, FUNDAMENTOS, OUVIDO_NIVEIS, AFINACOES, PATENTES, CONQUISTAS };
+})();
+if (typeof module !== 'undefined') module.exports = DATA;
+
+</script>

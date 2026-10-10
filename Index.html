@@ -1,0 +1,1444 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<base target="_top">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#0D0B09">
+<title>Afinadim</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@500;700&family=Instrument+Sans:wght@400;600&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet">
+<?!= include('Assets'); ?>
+</head>
+<body>
+<div id="boot" style="position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:var(--bg);color:var(--tx2);font-family:var(--f-b)"><p>Acendendo a brasa...</p></div>
+<div id="glow"></div>
+<div id="shell" class="hide">
+  <div id="app">
+    <header class="top">
+      <button class="logo" data-a="go" data-p="hoje" aria-label="Afinadim, ir para a tela Hoje">
+        <svg width="30" height="30" viewBox="0 0 30 30" fill="none" stroke="var(--am)" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 15C5 4 8 4 11 15S17 26 20 15 24 7 28 13"/></svg>
+        Afinadim
+      </button>
+      <div class="chips" id="chips"></div>
+    </header>
+    <main id="view" aria-live="polite"></main>
+  </div>
+  <nav class="tabs" aria-label="Navegação principal"><div class="in" id="tabs"></div></nav>
+</div>
+<script>
+'use strict';
+/* ===== STORE: progresso, XP, sequência, patentes, conquistas ===== */
+const Store = (() => {
+  const LIM_DIA = { afinar: 30, ouvido: 60, troca: 40, ritmo: 20, licao: 9999, musica: 9999, geral: 40 };
+  let S = padrao();
+  let boot = { email: '', nome: '' };
+  let timer = null, sujo = false;
+  let aoMudar = null;
+
+  function padrao() {
+    return { v: 1, t: 0, xp: 0, dias: [], done: {}, skip: {}, oui: { learn: {}, thr: 60, beat: 99, blind: [], sing: 0, tuned: 0, tunedManual: 0 },
+      trocas: {}, conq: {}, cfg: { inst: 'violao', lefty: false, tema: 'auto', rec: true, a4: 440, afin: 'padrao', nome: '' }, cap: { d: 0, a: {} }, hoje: { d: 0, m: {} }, chords: {}, seen: {} };
+  }
+  function hojeNum(d) { d = d || new Date(); return Math.floor((d.getTime() - d.getTimezoneOffset() * 60000) / 86400000); }
+
+  // Sequência: dias consecutivos, com uma folga automática (1 dia sem treinar) a cada 7 dias de sequência.
+  function calcSequencia(dias, hoje) {
+    const set = new Set(dias);
+    let cursor = set.has(hoje) ? hoje : hoje - 1; // hoje ainda pode ser salvo
+    if (!set.has(cursor)) {
+      if (set.has(cursor - 1)) cursor = cursor - 1; else return 0; // ontem sem treino = folga única
+    }
+    let seq = 0, ultimaFolga = -99, d = cursor;
+    while (true) {
+      if (set.has(d)) { seq++; d--; continue; }
+      // dia vazio: permite folga se houver dia treinado antes e a última folga foi há mais de 7 dias
+      if (set.has(d - 1) && seq - ultimaFolga >= 7 && ultimaFolga !== seq) { ultimaFolga = seq; d--; continue; }
+      break;
+    }
+    return seq;
+  }
+  function patente(xp) {
+    let i = 0;
+    for (let k = 0; k < DATA.PATENTES.length; k++) if (xp >= DATA.PATENTES[k].min) i = k;
+    const prox = DATA.PATENTES[i + 1];
+    return { i: i, nome: DATA.PATENTES[i].nome, min: DATA.PATENTES[i].min, prox: prox ? prox.min : null, prog: prox ? (xp - DATA.PATENTES[i].min) / (prox.min - DATA.PATENTES[i].min) : 1 };
+  }
+
+  function marcarDia() {
+    const h = hojeNum();
+    if (S.dias.indexOf(h) < 0) { S.dias.push(h); S.dias = S.dias.slice(-60); }
+    if (S.cap.d !== h) S.cap = { d: h, a: {} };
+    if (S.hoje.d !== h) S.hoje = { d: h, m: {} };
+  }
+  function award(ativ, xp) {
+    marcarDia();
+    const lim = LIM_DIA[ativ] != null ? LIM_DIA[ativ] : LIM_DIA.geral;
+    const usado = S.cap.a[ativ] || 0;
+    const ganho = Math.max(0, Math.min(xp, lim - usado));
+    S.cap.a[ativ] = usado + ganho;
+    S.xp += ganho;
+    checarConquistas();
+    mudou();
+    return ganho;
+  }
+  function missao(id) { marcarDia(); S.hoje.m[id] = 1; mudou(); }
+
+  function generosFeitos() {
+    const gs = new Set();
+    DATA.GENEROS.forEach(g => { if (Object.keys(S.done).some(k => k.indexOf(g.id + ':') === 0)) gs.add(g.id); });
+    return gs.size;
+  }
+  function checarConquistas() {
+    const c = S.conq, h = hojeNum(), seq = calcSequencia(S.dias, h);
+    const dar = id => { if (!c[id]) { c[id] = h; novas.push(id); } };
+    const novas = [];
+    if (S.oui.tuned > 0) dar('afinou');
+    if (S.oui.blind.some(x => x <= 15)) dar('cego-bronze');
+    if (S.oui.blind.some(x => x <= 5)) dar('cego-ouro');
+    if (seq >= 3) dar('dias3'); if (seq >= 7) dar('dias7'); if (seq >= 30) dar('dias30');
+    if (Object.keys(S.done).some(k => k.indexOf(':musica') > 0)) dar('musica1');
+    if (Object.keys(S.done).some(k => k.indexOf(':musica') > 0 && S.done[k] >= 3)) dar('estrelas3');
+    if (Object.keys(S.trocas).some(k => S.trocas[k] >= 30)) dar('troca30');
+    if (generosFeitos() >= 5) dar('ecletico');
+    if (patente(S.xp).i >= DATA.PATENTES.length - 1) dar('rei');
+    if (novas.length && Store.aoConquistar) novas.forEach(id => Store.aoConquistar(id));
+  }
+
+  // Nível da trilha Ouvido: número de missões cumpridas em sequência (0..8)
+  function ouvidoNivel() {
+    const o = S.oui; let n = 0;
+    const ok = [
+      () => o.learn.l0, () => o.thr <= 25, () => o.learn.l2 && o.beat <= 8,
+      () => o.learn.l3 && (o.tuned >= 3 || o.tunedManual), () => o.learn.l4,
+      () => o.blind.filter(x => x <= 15).length >= 3, () => o.sing >= 3,
+      () => o.blind.filter(x => x <= 8).length >= 6
+    ];
+    while (n < ok.length && ok[n]()) n++;
+    return n;
+  }
+
+  function licoesDoGenero(g) {
+    const m = DATA.MUSICAS[g.musica];
+    const set = []; m.linhas.forEach(l => l.forEach(s => { if (set.indexOf(s.c) < 0) set.push(s.c); }));
+    return [
+      { id: g.id + ':acordes', genero: g.id, tipo: 'acordes', nivel: g.niv, titulo: 'Acordes de ' + g.nome, acordes: set },
+      { id: g.id + ':levada', genero: g.id, tipo: 'levada', nivel: g.niv, titulo: 'Levada: ' + DATA.LEVADAS[g.levada].nome, levada: g.levada, acordes: set },
+      { id: g.id + ':musica', genero: g.id, tipo: 'musica', nivel: g.niv, titulo: 'Música: ' + m.titulo + ' (andamento 70%)', musica: g.musica, tempo: 0.7, min: 1 },
+      { id: g.id + ':musica2', genero: g.id, tipo: 'musica', nivel: Math.min(3, g.niv + 1), titulo: 'Música: ' + m.titulo + ' (andamento cheio)', musica: g.musica, tempo: 1, min: 2 }
+    ];
+  }
+  function liberada(g, i) {
+    const ls = licoesDoGenero(g);
+    if (i === 0) return true;
+    return !!(S.done[ls[i - 1].id] || S.skip[ls[i].id]);
+  }
+
+  function carregar(srv, local) {
+    let st = null;
+    const parse = s => { try { const o = JSON.parse(s); return o && o.v === 1 ? o : null; } catch (e) { return null; } };
+    const a = srv ? parse(srv) : null, b = local ? parse(local) : null;
+    st = a && b ? (b.t > a.t ? b : a) : (a || b);
+    S = Object.assign(padrao(), st || {});
+    S.oui = Object.assign(padrao().oui, S.oui || {});
+    S.cfg = Object.assign(padrao().cfg, S.cfg || {});
+    marcarDia();
+    return b && a && b.t > a.t;
+  }
+  function serializar() { S.t = Date.now(); return JSON.stringify(S); }
+  function mudou() {
+    sujo = true; if (aoMudar) aoMudar();
+    clearTimeout(timer); timer = setTimeout(salvar, 2500);
+  }
+  function salvar(forcar) {
+    if (!sujo && !forcar) return;
+    sujo = false;
+    const js = serializar();
+    try { localStorage.setItem('afinadim_p_' + boot.email, js); } catch (e) { /* armazenamento indisponível */ }
+    if (typeof google !== 'undefined' && google.script && google.script.run) {
+      google.script.run.withFailureHandler(function () { sujo = true; }).saveProgress(js);
+    }
+  }
+  return {
+    get s() { return S; }, calcSequencia, hojeNum, patente, award, missao, ouvidoNivel, licoesDoGenero, liberada, carregar, salvar, mudou, padrao,
+    setBoot(b) { boot = b; }, get boot() { return boot; }, onChange(f) { aoMudar = f; }, aoConquistar: null, checarConquistas, generosFeitos,
+    reset() { S = padrao(); mudou(); salvar(true); }, _setS(x) { S = x; }
+  };
+})();
+if (typeof module !== 'undefined') module.exports = Store;
+
+/* ===== ÁUDIO: síntese, relógio, microfone e reconhecimento ===== */
+const Som = (() => {
+  let ctx = null, master = null;
+  function init() {
+    if (!ctx) {
+      const C = window.AudioContext || window.webkitAudioContext;
+      ctx = new C({ latencyHint: 'interactive' });
+      master = ctx.createGain(); master.gain.value = 0.85; master.connect(ctx.destination);
+    }
+    if (ctx.state === 'suspended') ctx.resume();
+    return ctx;
+  }
+  function a4() { return Store.s.cfg.a4 || 440; }
+  // nota "dedilhada" por síntese aditiva (harmônicos com decaimento diferente)
+  function pluck(freq, when, dur, vel) {
+    init();
+    const t0 = when == null ? ctx.currentTime : when;
+    dur = dur || 1.8; vel = vel == null ? 0.5 : vel;
+    const hs = Math.max(1, Math.min(6, Math.floor((ctx.sampleRate / 2 - 300) / freq)));
+    for (let h = 1; h <= hs; h++) {
+      const o = ctx.createOscillator(), g = ctx.createGain();
+      o.type = 'sine'; o.frequency.value = freq * h;
+      const amp = (vel * 0.32) / Math.pow(h, 1.1);
+      g.gain.setValueAtTime(0.0001, t0);
+      g.gain.linearRampToValueAtTime(amp, t0 + 0.004);
+      g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur / (1 + 0.55 * (h - 1)));
+      o.connect(g); g.connect(master);
+      o.start(t0); o.stop(t0 + dur + 0.05);
+    }
+  }
+  function freqMidi(m) { return DSP.midiToFreq(m, a4()); }
+  function strum(nome, tipo, when, vel) {
+    const ac = DATA.ACORDES[nome]; if (!ac) return;
+    init();
+    const t0 = when == null ? ctx.currentTime : when;
+    const notas = DSP.notasDoAcorde(ac.f);
+    vel = vel == null ? 0.6 : vel;
+    if (tipo === 'B') { pluck(freqMidi(notas[0]), t0, 0.9, vel); return; }
+    let lista = notas, esp = 0.014, dur = 1.8, v = vel;
+    if (tipo === 'U') { lista = notas.slice(-4).reverse(); esp = 0.009; dur = 0.9; v = vel * 0.8; }
+    if (tipo === 'x') { dur = 0.09; v = vel * 0.45; esp = 0.004; }
+    if (tipo === 'C') { dur = 0.35; esp = 0.006; }
+    lista.forEach((m, i) => pluck(freqMidi(m), t0 + i * esp, dur, v / Math.sqrt(lista.length / 3)));
+  }
+  // tom contínuo (para exercícios de ouvido). Retorna objeto de controle.
+  function tom(freq, vol) {
+    init();
+    const o = ctx.createOscillator(), g = ctx.createGain();
+    o.type = 'sine'; o.frequency.value = freq;
+    g.gain.setValueAtTime(0.0001, ctx.currentTime);
+    g.gain.linearRampToValueAtTime(vol == null ? 0.22 : vol, ctx.currentTime + 0.05);
+    o.connect(g); g.connect(master); o.start();
+    return {
+      freq: function (f) { o.frequency.setTargetAtTime(f, ctx.currentTime, 0.01); },
+      stop: function () { try { g.gain.setTargetAtTime(0.0001, ctx.currentTime, 0.03); o.stop(ctx.currentTime + 0.2); } catch (e) { /* já parado */ } }
+    };
+  }
+  function click(when, acento) {
+    init();
+    const t0 = when == null ? ctx.currentTime : when;
+    const o = ctx.createOscillator(), g = ctx.createGain();
+    o.type = 'square'; o.frequency.value = acento ? 1500 : 1000;
+    g.gain.setValueAtTime(0.0001, t0);
+    g.gain.linearRampToValueAtTime(acento ? 0.28 : 0.18, t0 + 0.002);
+    g.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.05);
+    o.connect(g); g.connect(master); o.start(t0); o.stop(t0 + 0.07);
+  }
+  return { init, pluck, strum, tom, click, freqMidi, get ctx() { return ctx; }, get rate() { return ctx ? ctx.sampleRate : 48000; } };
+})();
+
+/* Relógio de pulsos (usa o relógio do navegador e agenda o som com antecedência) */
+function Relogio() {
+  let id = null, n = 0, prox = 0, msFn = null, cb = null;
+  return {
+    iniciar: function (getMs, aoPulso, atraso) {
+      this.parar();
+      msFn = getMs; cb = aoPulso; n = 0; prox = performance.now() + (atraso || 60);
+      id = setInterval(function () {
+        const agora = performance.now();
+        while (agora >= prox - 35) {
+          const d = Math.max(0, (prox - agora) / 1000);
+          cb(n, Som.ctx ? Som.ctx.currentTime + d : 0);
+          n++; prox += msFn();
+        }
+      }, 20);
+    },
+    parar: function () { if (id) clearInterval(id); id = null; },
+    get ativo() { return id != null; }
+  };
+}
+
+const Mic = {
+  ok: false, erro: '', msg: '', stream: null, an: null, an2: null, src: null, buf: null, spec: null,
+  async iniciar() {
+    if (this.ok) return true;
+    try {
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) throw Object.assign(new Error('mediaDevices indisponível'), { name: 'SemMediaDevices' });
+      const st = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false } });
+      const c = Som.init();
+      this.src = c.createMediaStreamSource(st);
+      this.an = c.createAnalyser(); this.an.fftSize = 4096; this.an.smoothingTimeConstant = 0;
+      this.src.connect(this.an);
+      this.buf = new Float32Array(4096);
+      this.stream = st; this.ok = true; this.erro = ''; this.msg = '';
+      return true;
+    } catch (e) {
+      this.erro = (e && e.name) || 'Erro'; this.msg = (e && e.message) || ''; this.ok = false;
+      return false;
+    }
+  },
+  analisadorCroma() {
+    if (!this.ok || this.an2) return;
+    const c = Som.ctx;
+    this.an2 = c.createAnalyser(); this.an2.fftSize = 16384; this.an2.smoothingTimeConstant = 0.25;
+    this.src.connect(this.an2);
+    this.spec = new Float32Array(this.an2.frequencyBinCount);
+  },
+  altura() {
+    this.an.getFloatTimeDomainData(this.buf);
+    return DSP.mpm(this.buf.subarray(this.buf.length - 3072), Som.rate, { minF: 55, maxF: 1200 });
+  },
+  nivel() {
+    this.an.getFloatTimeDomainData(this.buf);
+    let e = 0; const n = 2048, s = this.buf.length - n;
+    for (let i = 0; i < n; i++) e += this.buf[s + i] * this.buf[s + i];
+    return Math.sqrt(e / n);
+  },
+  croma() {
+    this.an2.getFloatFrequencyData(this.spec);
+    return DSP.chroma(DSP.dbParaMag(this.spec), Som.rate, this.an2.fftSize);
+  },
+  parar() {
+    try { if (this.stream) this.stream.getTracks().forEach(function (t) { t.stop(); }); } catch (e) { /* ok */ }
+    this.ok = false; this.an = null; this.an2 = null; this.src = null; this.stream = null;
+  }
+};
+
+/* Reconhecedor de acordes por croma, com vocabulário limitado à lição */
+const Recog = {
+  vocab: {},
+  definir(nomes) {
+    this.vocab = {};
+    nomes.forEach(function (n) { if (DATA.ACORDES[n]) Recog.vocab[n] = DSP.template(DATA.ACORDES[n].f); });
+  },
+  ler() {
+    const rms = Mic.nivel();
+    if (rms < 0.012) return { best: null, sim: 0, margem: 0, rms: rms };
+    const r = DSP.classificar(Mic.croma(), this.vocab);
+    r.rms = rms; return r;
+  }
+};
+
+/* ===== UI: núcleo, navegação, Hoje, Trilhas, lições ===== */
+const $ = function (s) { return document.querySelector(s); };
+const esc = function (s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); };
+const ACT = {}, INP = {}, VIEWS = {}, POS = [];
+const UI = { tab: 'hoje', sub: null, limpeza: [], nivel: 0, lv: { id: '', chord: '', bpm: 90, rodando: false, metro: true }, toastT: null };
+
+function aoSair(fn) { UI.limpeza.push(fn); }
+function limpar() { UI.limpeza.forEach(function (f) { try { f(); } catch (e) { /* ignora */ } }); UI.limpeza = []; }
+function pos(fn) { POS.push(fn); }
+function go(tab, sub) { limpar(); UI.tab = tab; UI.sub = sub || null; render(); window.scrollTo(0, 0); }
+function render() {
+  POS.length = 0;
+  let html = '';
+  try { html = VIEWS[UI.tab](); } catch (e) { html = '<div class="card bad">Ocorreu um erro ao abrir esta tela: ' + esc(e.message) + '</div>'; console.error(e); }
+  $('#view').innerHTML = html;
+  POS.slice().forEach(function (f) { try { f(); } catch (e) { console.error(e); } });
+  chrome();
+}
+function toast(msg, ms) {
+  let t = $('#toast');
+  if (!t) { t = document.createElement('div'); t.id = 'toast'; t.className = 'toast'; t.setAttribute('role', 'status'); document.body.appendChild(t); }
+  t.textContent = msg; t.classList.remove('hide');
+  clearTimeout(UI.toastT); UI.toastT = setTimeout(function () { t.classList.add('hide'); }, ms || 2600);
+}
+const ICO = {
+  hoje: '<path d="M12 3c1 3.5 5 5.5 5 10a5 5 0 0 1-10 0c0-2 1-3 2-4 0 2 1 2.5 1.5 2.5C11 9 10.5 5.5 12 3z"/>',
+  trilhas: '<circle cx="6" cy="6" r="2.2"/><circle cx="18" cy="18" r="2.2"/><path d="M8 6h6a3 3 0 0 1 0 6h-4a3 3 0 0 0 0 6h6"/>',
+  palco: '<path d="M7 4l13 8-13 8z"/>',
+  ouvido: '<path d="M3 12h2M7 7v10M11 4v16M15 8v8M19 10v4M22 12h-1"/>',
+  mais: '<circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/>'
+};
+function ico(n) { return '<svg viewBox="0 0 24 24" aria-hidden="true">' + ICO[n] + '</svg>'; }
+function chrome() {
+  const s = Store.s, p = Store.patente(s.xp), seq = Store.calcSequencia(s.dias, Store.hojeNum());
+  $('#chips').innerHTML =
+    '<button class="chip am" data-a="go" data-p="mais|progresso" aria-label="Sequência de ' + seq + ' dias"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + ICO.hoje + '</svg>' + seq + '</button>' +
+    '<button class="chip" data-a="go" data-p="mais|progresso" aria-label="Patente ' + esc(p.nome) + ', ' + s.xp + ' XP">' + esc(p.nome) + ' · ' + s.xp + '</button>';
+  const abas = [['hoje', 'Hoje'], ['trilhas', 'Trilhas'], ['palco', 'Palco'], ['ouvido', 'Ouvido'], ['mais', 'Mais']];
+  $('#tabs').innerHTML = abas.map(function (a) {
+    return '<button data-a="go" data-p="' + a[0] + '" class="' + (UI.tab === a[0] ? 'on' : '') + '" ' + (UI.tab === a[0] ? 'aria-current="page"' : '') + '>' + ico(a[0]) + a[1] + '</button>';
+  }).join('');
+}
+
+/* ---- Diagrama de acorde em SVG ---- */
+function chordSVG(nome, w) {
+  const a = DATA.ACORDES[nome]; if (!a) return '';
+  const f = a.f, lefty = Store.s.cfg.lefty;
+  const pos_ = f.filter(function (x) { return x > 0; });
+  const max = pos_.length ? Math.max.apply(null, pos_) : 0, min = pos_.length ? Math.min.apply(null, pos_) : 0;
+  const base = max > 4 ? min : 1, nF = 4, W = 120, H = 140, x0 = 22, y0 = 30, dx = (W - 2 * x0) / 5, dy = (H - y0 - 8) / nF;
+  const X = function (i) { return x0 + (lefty ? 5 - i : i) * dx; };
+  let s = '<svg viewBox="0 0 ' + W + ' ' + H + '" width="' + (w || 110) + '" role="img" aria-label="Acorde ' + esc(nome) + '">';
+  for (let i = 0; i < 6; i++) s += '<line x1="' + X(i) + '" y1="' + y0 + '" x2="' + X(i) + '" y2="' + (y0 + nF * dy) + '" stroke="var(--ln2)" stroke-width="1.5"/>';
+  for (let j = 0; j <= nF; j++) s += '<line x1="' + x0 + '" y1="' + (y0 + j * dy) + '" x2="' + (W - x0) + '" y2="' + (y0 + j * dy) + '" stroke="' + (j === 0 && base === 1 ? 'var(--tx)' : 'var(--ln2)') + '" stroke-width="' + (j === 0 && base === 1 ? 4 : 1.5) + '"/>';
+  if (base > 1) s += '<text x="' + (W - 4) + '" y="' + (y0 + dy * 0.62) + '" text-anchor="end" font-size="11" fill="var(--tx2)" font-family="var(--f-m)">' + base + 'ª</text>';
+  if (a.pestana) {
+    const idx = []; f.forEach(function (v, i) { if (v === a.pestana) idx.push(i); });
+    const xa = Math.min.apply(null, idx.map(X)), xb = Math.max.apply(null, idx.map(X)), cy = y0 + (a.pestana - base + 0.5) * dy;
+    s += '<rect x="' + (xa - 7) + '" y="' + (cy - 7) + '" width="' + (xb - xa + 14) + '" height="14" rx="7" fill="var(--amb)"/>';
+  }
+  for (let i = 0; i < 6; i++) {
+    const v = f[i], x = X(i);
+    if (v < 0) s += '<path d="M' + (x - 4) + ' 10l8 8M' + (x + 4) + ' 10l-8 8" stroke="var(--tx2)" stroke-width="2" stroke-linecap="round"/>';
+    else if (v === 0) s += '<circle cx="' + x + '" cy="14" r="4.5" fill="none" stroke="var(--tx2)" stroke-width="2"/>';
+    else {
+      const cy = y0 + (v - base + 0.5) * dy;
+      if (!(a.pestana && v === a.pestana && a.d[i] === 1)) s += '<circle cx="' + x + '" cy="' + cy + '" r="8" fill="var(--amb)"/>';
+      if (a.d[i] > 0) s += '<text x="' + x + '" y="' + (cy + 4) + '" text-anchor="middle" font-size="11" font-weight="700" fill="var(--on-am)" font-family="var(--f-m)">' + a.d[i] + '</text>';
+    }
+  }
+  return s + '</svg>';
+}
+function nomesNotas(nome) {
+  const a = DATA.ACORDES[nome]; if (!a) return '';
+  return DSP.notasDoAcorde(a.f).map(DSP.nomeMidi).join(' · ');
+}
+function estrelas(n, max) { let s = ''; for (let i = 1; i <= (max || 3); i++) s += i <= n ? '★' : '☆'; return s; }
+
+/* ---- Escuta de um acorde (verificação) ---- */
+async function escutar(nome, vocab, cb, ms) {
+  const ok = await Mic.iniciar();
+  if (!ok) { cb({ erro: true }); return function () {}; }
+  Mic.analisadorCroma(); Recog.definir(vocab);
+  let seguidos = 0; const t0 = Date.now();
+  const id = setInterval(function () {
+    const r = Recog.ler();
+    if (r.best === nome && r.sim >= 0.7) seguidos++; else seguidos = 0;
+    if (seguidos >= 2) { clearInterval(id); cb({ ganhou: true, r: r }); }
+    else if (Date.now() - t0 > ms) { clearInterval(id); cb({ tempo: true, r: r }); }
+    else cb({ r: r, seguidos: seguidos });
+  }, 110);
+  const parar = function () { clearInterval(id); };
+  aoSair(parar);
+  return parar;
+}
+function msgMic() {
+  const e = Mic.erro;
+  if (e === 'NotAllowedError' || e === 'SecurityError') return 'O navegador bloqueou o microfone. Libere a permissão no cadeado do endereço (ou veja Ajustes > Testar microfone). Enquanto isso, use o modo manual.';
+  if (e === 'NotFoundError') return 'Nenhum microfone foi encontrado neste aparelho.';
+  if (e === 'SemMediaDevices') return 'Este navegador ou esta tela não permite microfone aqui. Veja Ajustes > Testar microfone.';
+  return 'Não consegui acessar o microfone (' + esc(e) + '). Veja Ajustes > Testar microfone.';
+}
+
+/* ---- HOJE ---- */
+function proximaLicao() {
+  const s = Store.s;
+  for (const f of DATA.FUNDAMENTOS) if (f.nivel === 1 && !s.done[f.id]) return { id: f.id, nome: f.titulo };
+  for (const g of DATA.GENEROS) {
+    const ls = Store.licoesDoGenero(g);
+    for (const l of ls) if (!s.done[l.id]) return { id: l.id, nome: l.titulo };
+  }
+  for (const f of DATA.FUNDAMENTOS) if (!s.done[f.id]) return { id: f.id, nome: f.titulo };
+  return null;
+}
+VIEWS.hoje = function () {
+  const s = Store.s, p = Store.patente(s.xp), seq = Store.calcSequencia(s.dias, Store.hojeNum());
+  const m = s.hoje.m;
+  const tarefas = [
+    { id: 'afinar', t: 'Afinar e aquecer', p: 'ouvido|afinar' },
+    { id: 'ouvido', t: 'Treinar o ouvido (1 rodada)', p: 'ouvido|treinar' },
+    { id: 'troca', t: 'Treino de troca de acordes', p: 'mais|acordes' },
+    { id: 'musica', t: 'Praticar uma música', p: 'palco' }
+  ];
+  const feitas = tarefas.filter(function (t) { return m[t.id]; }).length;
+  const prox = proximaLicao();
+  const nome = s.cfg.nome || Store.boot.nome || 'músico';
+  return '<p class="dim small" style="margin-top:8px">' + (seq > 0 ? 'Você está na brasa há ' + seq + (seq === 1 ? ' dia' : ' dias') : 'Vamos acender a brasa hoje') + '</p>' +
+    '<h1>Olá, ' + esc(nome) + '</h1>' +
+    '<div class="card"><div class="row sp"><span class="up am">Patente</span><span class="mono small dim">' + s.xp + ' XP</span></div>' +
+    '<h2 style="margin-top:4px">' + esc(p.nome) + '</h2>' +
+    '<div class="bar" style="margin-top:10px"><i style="width:' + Math.round(p.prog * 100) + '%"></i></div>' +
+    '<p class="small dim" style="margin-top:6px">' + (p.prox ? 'Faltam ' + (p.prox - s.xp) + ' XP para a próxima patente.' : 'Você chegou ao topo da roda.') + '</p></div>' +
+    '<div class="card"><div class="row sp"><span class="up am">Missão do dia</span><span class="mono small dim">' + feitas + '/' + tarefas.length + '</span></div>' +
+    tarefas.map(function (t) {
+      return '<button class="les" data-a="go" data-p="' + t.p + '"><span class="dot ' + (m[t.id] ? 'd' : '') + '">' + (m[t.id] ? '✓' : '') + '</span><span class="grow">' + esc(t.t) + '</span><span class="dim">›</span></button>';
+    }).join('') +
+    '<p class="small dim" style="margin-top:10px">A sequência tem uma folga automática: você pode faltar 1 dia a cada 7 sem perdê-la.</p></div>' +
+    (prox ? '<div class="card hl"><span class="up am">Continuar de onde parou</span><h3 style="margin-top:6px">' + esc(prox.nome) + '</h3>' +
+      '<button class="btn full" style="margin-top:12px" data-a="go" data-p="trilhas|l/' + esc(prox.id) + '">Continuar</button></div>' : '') +
+    '<div class="card"><span class="up am">Seu ouvido</span><p style="margin-top:6px">Nível ' + Store.ouvidoNivel() + ' de 8 na trilha de afinação por ouvido.</p>' +
+    '<button class="btn o sm" style="margin-top:10px" data-a="go" data-p="ouvido|aprender">Ver trilha do ouvido</button></div>';
+};
+
+/* ---- TRILHAS ---- */
+function acharLicao(id) {
+  const f = DATA.FUNDAMENTOS.find(function (x) { return x.id === id; });
+  if (f) return Object.assign({ tipo: 'fund' }, f);
+  const g = DATA.GENEROS.find(function (x) { return x.id === id.split(':')[0]; });
+  return g ? Store.licoesDoGenero(g).find(function (l) { return l.id === id; }) : null;
+}
+function parSub() { const x = (UI.sub || '').split('/'); return [x[0], x.slice(1).join('/')]; }
+function barraProg(feitos, total) { return '<div class="bar" style="margin-top:8px"><i style="width:' + Math.round(100 * feitos / Math.max(1, total)) + '%"></i></div>'; }
+
+VIEWS.trilhas = function () {
+  const [k, v] = parSub();
+  if (k === 'l') return vLicao(v);
+  if (k === 'g') return vGenero(v);
+  const s = Store.s, nv = UI.nivel;
+  const filtro = function (n) { return nv === 0 || n === nv; };
+  const fund = DATA.FUNDAMENTOS.filter(function (f) { return filtro(f.nivel); });
+  const gcard = function (g) {
+    const ls = Store.licoesDoGenero(g), feitos = ls.filter(function (l) { return s.done[l.id]; }).length;
+    const mostra = nv === 0 || ls.some(function (l) { return l.nivel === nv; });
+    if (!mostra) return '';
+    return '<button class="gen" style="--gc:' + g.cor + '" data-a="go" data-p="trilhas|g/' + g.id + '"><div class="row sp"><h3>' + esc(g.nome) + '</h3><span class="mono small dim">' + feitos + '/4</span></div>' +
+      '<p class="small dim" style="margin-top:4px">' + esc(g.resumo) + '</p>' + barraProg(feitos, 4) + '</button>';
+  };
+  return '<h1 style="margin-top:8px">Trilhas</h1><p class="dim">Escolha por nível ou por gênero. Tudo é gratuito e sem vídeo.</p>' +
+    '<div class="row wrap" style="margin-top:12px">' + [0, 1, 2, 3].map(function (n) { return '<button class="pill ' + (nv === n ? 'on' : '') + '" data-a="nivel" data-p="' + n + '">' + (n ? 'Nível ' + n : 'Todos') + '</button>'; }).join('') + '</div>' +
+    '<h2 style="margin-top:20px">Fundamentos</h2>' +
+    fund.map(function (f) {
+      return '<button class="les" data-a="go" data-p="trilhas|l/' + f.id + '"><span class="dot ' + (s.done[f.id] ? 'd' : '') + '">' + (s.done[f.id] ? '✓' : f.nivel) + '</span><span class="grow">' + esc(f.titulo) + '<br><span class="small dim">Nível ' + f.nivel + '</span></span><span class="dim">›</span></button>';
+    }).join('') +
+    '<h2 style="margin-top:22px">Gêneros em alta</h2>' + DATA.GENEROS.filter(function (g) { return g.grupo === 'alta'; }).map(gcard).join('') +
+    '<h2 style="margin-top:22px">Clássicos</h2>' + DATA.GENEROS.filter(function (g) { return g.grupo === 'classico'; }).map(gcard).join('') +
+    '<p class="small dim" style="margin-top:18px">Metal e outros subgêneros do rock entram na próxima fase do projeto.</p>';
+};
+ACT.nivel = function (p) { UI.nivel = +p; render(); };
+
+function vGenero(id) {
+  const g = DATA.GENEROS.find(function (x) { return x.id === id; });
+  if (!g) return '<p>Gênero não encontrado.</p>';
+  const s = Store.s, ls = Store.licoesDoGenero(g), m = DATA.MUSICAS[g.musica];
+  return '<button class="btn g sm" style="margin-top:8px" data-a="go" data-p="trilhas">‹ Trilhas</button>' +
+    '<h1 style="margin-top:12px">' + esc(g.nome) + '</h1>' +
+    '<p class="dim" style="margin-top:6px">' + esc(g.resumo) + '</p>' +
+    '<div class="card"><span class="up am">Dica para ' + (s.cfg.inst === 'guitarra' ? 'guitarra' : 'violão') + '</span><p style="margin-top:6px">' + esc(g.dica[s.cfg.inst === 'guitarra' ? 'guitarra' : 'violao']) + '</p></div>' +
+    '<h2 style="margin-top:20px">Trilha de ' + esc(g.nome) + '</h2>' +
+    ls.map(function (l, i) {
+      const lib = Store.liberada(g, i), feito = s.done[l.id];
+      return '<button class="les" ' + (lib ? '' : 'disabled') + ' data-a="go" data-p="trilhas|l/' + l.id + '"><span class="dot ' + (feito ? 'd' : (lib ? 'c' : '')) + '">' + (feito ? '✓' : (i + 1)) + '</span>' +
+        '<span class="grow">' + esc(l.titulo) + '<br><span class="small dim">' + (lib ? 'Nível ' + l.nivel : 'Conclua a anterior para liberar') + '</span></span>' +
+        (feito && l.tipo === 'musica' ? '<span class="stars">' + estrelas(Math.min(3, feito)) + '</span>' : '<span class="dim">' + (lib ? '›' : '') + '</span>') + '</button>';
+    }).join('') +
+    '<p class="small dim" style="margin-top:12px">Música desta trilha: <b>' + esc(m.titulo) + '</b> (letra original do projeto).</p>';
+}
+
+function vLicao(id) {
+  const l = acharLicao(id);
+  if (!l) return '<p>Lição não encontrada.</p>';
+  const s = Store.s, feito = s.done[l.id];
+  const voltar = l.genero ? 'trilhas|g/' + l.genero : 'trilhas';
+  const topo = '<button class="btn g sm" style="margin-top:8px" data-a="go" data-p="' + voltar + '">‹ Voltar</button><h1 style="margin-top:12px">' + esc(l.titulo) + '</h1>';
+  if (l.tipo === 'fund') {
+    return topo + '<p class="dim small" style="margin-top:6px">Fundamentos · Nível ' + l.nivel + '</p>' +
+      '<div class="card"><ol class="steps" style="margin:0">' + l.passos.map(function (p) { return '<li>' + esc(p) + '</li>'; }).join('') + '</ol></div>' +
+      (l.acorde ? '<div class="grid3" style="margin-top:12px">' + l.acorde.map(function (n) { return '<button class="chord" data-a="ouvirAcorde" data-p="' + n + '" aria-label="Ouvir ' + n + '">' + chordSVG(n, 92) + '<div class="mono">' + esc(n) + '</div></button>'; }).join('') + '</div>' : '') +
+      (l.acao ? '<button class="btn o full" style="margin-top:14px" data-a="go" data-p="' + (l.acao === 'ouvido' ? 'ouvido|afinar' : l.acao === 'ritmo' ? 'mais|ritmo' : 'mais|acordes') + '">Abrir ' + (l.acao === 'ouvido' ? 'o afinador' : l.acao === 'ritmo' ? 'o metrônomo' : 'os acordes') + '</button>' : '') +
+      '<button class="btn full" style="margin-top:12px" ' + (feito ? 'disabled' : '') + ' data-a="concluir" data-p="' + l.id + '">' + (feito ? 'Concluída ✓' : 'Marcar como concluída (+10 XP)') + '</button>';
+  }
+  if (l.tipo === 'acordes') {
+    const tudo = l.acordes.every(function (n) { return s.chords[n]; });
+    return topo + '<p class="dim" style="margin-top:6px">Monte cada acorde, toque e deixe o Afinadim ouvir. Sem microfone, use o botão Consegui.</p>' +
+      l.acordes.map(function (n) {
+        const ok = s.chords[n];
+        return '<div class="card"><div class="row"><div>' + chordSVG(n, 96) + '</div><div class="grow col"><div class="row sp"><h3 class="mono">' + esc(n) + '</h3><span class="' + (ok ? 'fo' : 'dim') + ' small">' + (ok ? 'Verificado ✓' : 'Pendente') + '</span></div>' +
+          '<p class="small dim mono">' + esc(nomesNotas(n)) + '</p>' +
+          '<div class="row wrap"><button class="btn o sm" data-a="ouvirAcorde" data-p="' + n + '">Ouvir</button>' +
+          '<button class="btn sm" data-a="verificar" data-p="' + n + '|' + l.id + '">Tocar e verificar</button>' +
+          '<button class="btn g sm" data-a="consegui" data-p="' + n + '">Consegui</button></div>' +
+          '<div id="st-' + esc(n.replace('#', 's')) + '" class="small dim" role="status"></div></div></div></div>';
+      }).join('') +
+      '<button class="btn full" style="margin-top:14px" ' + (feito || !tudo ? 'disabled' : '') + ' data-a="concluirAcordes" data-p="' + l.id + '">' + (feito ? 'Concluída ✓' : tudo ? 'Concluir lição (+25 XP)' : 'Verifique todos os acordes para concluir') + '</button>';
+  }
+  if (l.tipo === 'levada') {
+    return topo + vLevada(l.levada, l.acordes) +
+      '<button class="btn full" style="margin-top:14px" ' + (feito ? 'disabled' : '') + ' data-a="concluir" data-p="' + l.id + '">' + (feito ? 'Concluída ✓' : 'Consegui tocar 4 compassos (+20 XP)') + '</button>';
+  }
+  if (l.tipo === 'musica') {
+    const m = DATA.MUSICAS[l.musica];
+    return topo + '<div class="card"><p>' + esc(m.titulo) + ' · tom de ' + esc(m.tom) + ' · ' + m.bpm + ' bpm</p>' +
+      '<p class="dim small" style="margin-top:6px">Meta desta lição: ' + estrelas(l.min) + ' no Palco, no andamento de ' + Math.round(l.tempo * 100) + '%.</p>' +
+      '<p class="dim small" style="margin-top:6px">' + (feito ? 'Melhor resultado: ' + estrelas(Math.min(3, feito)) : 'Ainda não concluída.') + '</p></div>' +
+      '<button class="btn full" style="margin-top:14px" data-a="abrirPalco" data-p="' + l.musica + '|' + l.tempo + '|' + l.id + '">Abrir no Palco</button>';
+  }
+  return topo;
+}
+ACT.ouvirAcorde = function (n) { Som.init(); Som.strum(n, 'D'); };
+ACT.concluir = function (id) {
+  const l = acharLicao(id); if (!l || Store.s.done[id]) return;
+  Store.s.done[id] = 1;
+  const ganho = Store.award('licao', l.tipo === 'levada' ? 20 : 10);
+  if (l.tipo === 'levada') Store.missao('ritmo');
+  toast('Lição concluída! +' + ganho + ' XP'); render();
+};
+ACT.concluirAcordes = function (id) {
+  if (Store.s.done[id]) return;
+  Store.s.done[id] = 1; const ganho = Store.award('licao', 25);
+  toast('Acordes dominados! +' + ganho + ' XP'); render();
+};
+ACT.consegui = function (n) { Store.s.chords[n] = 1; Store.mudou(); render(); };
+ACT.verificar = async function (p, el) {
+  const [n, lid] = p.split('|');
+  const l = acharLicao(lid), vocab = l && l.acordes ? l.acordes : [n];
+  const st = $('#st-' + n.replace('#', 's'));
+  if (st) st.textContent = 'Ligando o microfone...';
+  Som.init();
+  await escutar(n, vocab, function (r) {
+    const el2 = $('#st-' + n.replace('#', 's')); if (!el2) return;
+    if (r.erro) { el2.textContent = msgMic(); return; }
+    if (r.ganhou) { Store.s.chords[n] = 1; Store.award('troca', 2); Store.mudou(); toast('Ouvi o ' + n + '! Muito bem.'); render(); return; }
+    if (r.tempo) { el2.textContent = 'Não consegui confirmar o ' + n + '. Toque as cordas com firmeza, deixe soar e tente de novo.'; return; }
+    const ouv = r.r && r.r.best ? 'Estou ouvindo: ' + r.r.best : 'Toque o acorde...';
+    el2.textContent = ouv;
+  }, 9000);
+};
+
+/* ---- LEVADAS (player de ritmo) ---- */
+function simbolo(s) { return { D: '↓', U: '↑', x: 'x', B: 'B', C: 'C', '-': '·' }[s] || s; }
+function vLevada(levId, acordes) {
+  const L = DATA.LEVADAS[levId], lv = UI.lv;
+  if (lv.id !== levId) { lv.id = levId; lv.bpm = L.bpm; lv.rodando = false; }
+  if (acordes.indexOf(lv.chord) < 0) lv.chord = acordes[0];
+  pos(function () { aoSair(pararLevada); });
+  return '<div class="card"><h3>' + esc(L.nome) + '</h3><p class="small dim" style="margin-top:6px">' + esc(L.dica) + '</p>' +
+    '<div class="lev" id="levg">' + L.seq.map(function (s, i) { return '<div class="' + (s === '-' ? 'n' : '') + '">' + simbolo(s) + '<small>' + ['1', 'e', '2', 'e', '3', 'e', '4', 'e'][i] + '</small></div>'; }).join('') + '</div>' +
+    '<p class="small dim" style="margin-top:8px">↓ para baixo · ↑ para cima · x abafado · B nota grave · C acorde curto · · pausa. Os padrões são estudos base: o balanço real vem de ouvir e imitar.</p>' +
+    '<div class="grid2" style="margin-top:12px"><div><label class="small dim" for="lvc">Acorde</label><select id="lvc" data-c="lvAcorde">' + acordes.map(function (a) { return '<option ' + (a === lv.chord ? 'selected' : '') + '>' + esc(a) + '</option>'; }).join('') + '</select></div>' +
+    '<div><label class="small dim" for="lvb">Andamento: <b id="lvbv">' + lv.bpm + '</b> bpm</label><input id="lvb" type="range" min="50" max="160" value="' + lv.bpm + '" data-i="lvBpm"></div></div>' +
+    '<label class="chk"><input type="checkbox" id="lvm" ' + (lv.metro ? 'checked' : '') + ' data-c="lvMetro"> Metrônomo junto</label>' +
+    '<button class="btn full" id="lvgo" data-a="levadaPlay">' + (lv.rodando ? 'Parar' : 'Tocar levada') + '</button></div>';
+}
+let relLev = null;
+function pararLevada() { if (relLev) relLev.parar(); relLev = null; UI.lv.rodando = false; const b = $('#lvgo'); if (b) b.textContent = 'Tocar levada'; }
+ACT.levadaPlay = function () {
+  const lv = UI.lv; Som.init();
+  if (lv.rodando) { pararLevada(); return; }
+  lv.rodando = true; $('#lvgo').textContent = 'Parar';
+  const L = DATA.LEVADAS[lv.id];
+  relLev = Relogio();
+  relLev.iniciar(function () { return 30000 / lv.bpm; }, function (n, quando) {
+    const p = n % 8, s = L.seq[p];
+    if (s !== '-') Som.strum(lv.chord, s, quando, 0.65);
+    if (lv.metro && p % 2 === 0) Som.click(quando, p === 0);
+    const g = $('#levg'); if (g) Array.prototype.forEach.call(g.children, function (c, i) { c.classList.toggle('on', i === p); });
+  });
+};
+INP.lvBpm = function (v) { UI.lv.bpm = +v; const e = $('#lvbv'); if (e) e.textContent = v; };
+ACT.lvAcorde = function () {};
+const CHG = {};
+CHG.lvAcorde = function (v) { UI.lv.chord = v; };
+CHG.lvMetro = function (v, el) { UI.lv.metro = el.checked; };
+
+function abrirPalcoComLicao(p) {
+  const [id, tempo, lid] = p.split('|');
+  PALCO.abrir(id, { tempo: +tempo || 1, lessonId: lid || null });
+}
+ACT.abrirPalco = function (p) { abrirPalcoComLicao(p); };
+
+/* ===== UI: OUVIDO (afinador guiado, às cegas, jogos e trilha) ===== */
+const OU = { sel: -1, cego: false, hist: [], ult: 0, okDesde: 0, feito: {}, estavel: null, res: null, cents: [], id: null, micOk: false };
+const rnd = function (n) { return Math.floor(Math.random() * n); };
+const a4 = function () { return Store.s.cfg.a4 || 440; };
+const notasAfin = function () { return DATA.AFINACOES[Store.s.cfg.afin] || DATA.AFINACOES.padrao; };
+
+VIEWS.ouvido = function () {
+  const [k, v] = parSub();
+  const sub = k || 'afinar';
+  const seg = '<div class="seg" role="tablist">' + [['afinar', 'Afinar'], ['treinar', 'Treinar'], ['aprender', 'Aprender']].map(function (a) {
+    return '<button role="tab" class="' + ((sub === a[0] || (sub === 'jogo' && a[0] === 'treinar')) ? 'on' : '') + '" data-a="go" data-p="ouvido|' + a[0] + '">' + a[1] + '</button>';
+  }).join('') + '</div>';
+  if (sub === 'jogo') return JOGOS.ver(v);
+  if (sub === 'treinar') return seg + vTreinar();
+  if (sub === 'aprender') return seg + vAprender();
+  return seg + vAfinar();
+};
+
+/* ---------- AFINADOR ---------- */
+function gaugeSVG() {
+  return '<svg viewBox="0 0 390 270" role="img" aria-label="Medidor de afinação em cents"><path d="M54 198.7 A150 150 0 0 1 336 198.7" fill="none" stroke="var(--ln)" stroke-width="2"/>' +
+    '<path d="M184 100.4 A150 150 0 0 1 206 100.4" fill="none" stroke="var(--fo)" stroke-width="8" stroke-linecap="round"/>' +
+    '<g stroke="var(--tx2)" stroke-width="2" stroke-linecap="round"><line x1="54" y1="198.7" x2="68.1" y2="203.8"/><line x1="109" y1="127.1" x2="117.6" y2="139.4"/><line x1="195" y1="100" x2="195" y2="115"/><line x1="281" y1="127.1" x2="272.4" y2="139.4"/><line x1="336" y1="198.7" x2="321.9" y2="203.8"/></g>' +
+    '<text x="40" y="226" fill="var(--tx2)" font-family="var(--f-m)" font-size="13">-50</text><text x="188" y="90" fill="var(--fo)" font-family="var(--f-m)" font-size="13">0</text><text x="322" y="226" fill="var(--tx2)" font-family="var(--f-m)" font-size="13">+50</text>' +
+    '<g id="needle" transform="rotate(0 195 250)"><line x1="195" y1="250" x2="195" y2="118" stroke="var(--am)" stroke-width="4" stroke-linecap="round"/></g>' +
+    '<circle cx="195" cy="250" r="9" fill="var(--amb)"/><circle cx="195" cy="250" r="3.5" fill="var(--bg)"/></svg>';
+}
+function vAfinar() {
+  const s = Store.s, af = notasAfin();
+  pos(function () {
+    OU.hist = []; OU.cents = []; OU.okDesde = 0; OU.feito = {}; OU.estavel = null; OU.res = null;
+    if (OU.id) clearInterval(OU.id);
+    aoSair(function () { if (OU.id) clearInterval(OU.id); OU.id = null; Mic.parar(); OU.micOk = false; });
+    if (Mic.ok) iniciarLoopAfinador();
+  });
+  return '<div class="row sp wrap" style="margin-top:12px"><div class="grow"><label class="small dim" for="afin">Afinação</label><select id="afin" data-c="afin">' +
+    Object.keys(DATA.AFINACOES).map(function (k) { return '<option value="' + k + '" ' + (k === s.cfg.afin ? 'selected' : '') + '>' + esc(DATA.AFINACOES[k].nome) + '</option>'; }).join('') + '</select></div></div>' +
+    '<div class="gauge" id="gaugebox">' + gaugeSVG() + '<div class="gnote"><b id="gnome" aria-live="polite">–</b><span id="ghz" class="mono dim">Toque uma corda</span></div></div>' +
+    '<div id="gmsg" class="info" role="status" style="margin-top:6px">Ative o microfone e toque uma corda solta.</div>' +
+    '<div class="strs" id="strs"><button class="pill ' + (OU.sel < 0 ? 'on' : '') + '" data-a="cordaSel" data-p="-1">Auto</button>' +
+    af.notas.map(function (m, i) { return '<button class="str ' + (OU.sel === i ? 'on' : '') + '" id="str' + i + '" data-a="cordaSel" data-p="' + i + '" aria-label="Corda ' + (af.notas.length - i) + ', ' + DSP.NOTAS[m % 12] + '. Toque para ouvir a referência">' + DSP.NOTAS[m % 12] + '</button>'; }).join('') + '</div>' +
+    '<div class="row" style="margin-top:6px;justify-content:center"><div class="meter" id="meter" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div></div>' +
+    '<div class="grid2" style="margin-top:14px"><button class="btn" id="bmic" data-a="micAfinar">' + (Mic.ok ? 'Microfone ligado' : 'Ativar microfone') + '</button>' +
+    '<button class="btn o" data-a="refAfinar">Ouvir referência</button></div>' +
+    '<label class="chk" style="margin-top:6px"><input type="checkbox" data-c="cego" ' + (OU.cego ? 'checked' : '') + '> Modo às cegas (esconde o ponteiro e treina o ouvido)</label>' +
+    '<div id="cegobox" class="' + (OU.cego ? '' : 'hide') + '"><button class="btn o full" data-a="revelar">Revelar resultado</button><div id="revelado" class="card" style="display:none" role="status"></div></div>' +
+    '<p class="small dim" style="margin-top:10px">Dica: chegue sempre na nota subindo a tensão. Se passar, afrouxe um pouco e suba de novo.</p>';
+}
+CHG.afin = function (v) { Store.s.cfg.afin = v; OU.sel = -1; Store.mudou(); render(); };
+CHG.cego = function (v, el) {
+  OU.cego = el.checked; OU.estavel = null; OU.res = null;
+  const b = $('#cegobox'); if (b) b.classList.toggle('hide', !OU.cego);
+  const n = $('#needle'); if (n) n.style.opacity = OU.cego ? 0 : 1;
+  const r = $('#revelado'); if (r) r.style.display = 'none';
+  setMsg(OU.cego ? 'Modo às cegas: afine de ouvido, toque a corda e depois toque em Revelar.' : 'Toque uma corda solta.', 'info');
+  if (!OU.cego) { const g = $('#gnome'); if (g) g.textContent = '–'; }
+};
+function setMsg(t, tipo) { const m = $('#gmsg'); if (m) { m.className = tipo || 'info'; m.textContent = t; } }
+ACT.cordaSel = function (p) {
+  OU.sel = +p; OU.hist = []; OU.okDesde = 0; OU.estavel = null;
+  if (OU.sel >= 0) { Som.init(); Som.pluck(DSP.midiToFreq(notasAfin().notas[OU.sel], a4()), null, 2.2, 0.6); }
+  const af = notasAfin();
+  const pills = document.querySelectorAll('#strs .pill'); pills.forEach(function (b) { b.classList.toggle('on', OU.sel < 0); });
+  af.notas.forEach(function (_, i) { const b = $('#str' + i); if (b) b.classList.toggle('on', i === OU.sel); });
+};
+ACT.refAfinar = function () {
+  const i = OU.sel >= 0 ? OU.sel : 0; Som.init();
+  Som.pluck(DSP.midiToFreq(notasAfin().notas[i], a4()), null, 2.4, 0.6);
+};
+ACT.micAfinar = async function () {
+  Som.init(); setMsg('Pedindo acesso ao microfone...', 'info');
+  const ok = await Mic.iniciar();
+  if (!ok) { setMsg(msgMic(), 'bad'); return; }
+  $('#bmic').textContent = 'Microfone ligado';
+  setMsg('Pode tocar. Uma corda por vez, deixando soar.', 'info');
+  iniciarLoopAfinador();
+};
+function iniciarLoopAfinador() {
+  if (OU.id) clearInterval(OU.id);
+  OU.id = setInterval(passoAfinador, 60);
+}
+function passoAfinador() {
+  if (!Mic.ok) return;
+  const t = Date.now(), r = Mic.altura();
+  const med = $('#meter');
+  if (med) { const n = Math.min(8, Math.round(r.rms * 90)); Array.prototype.forEach.call(med.children, function (c, i) { c.classList.toggle('on', i < n); c.style.height = (6 + i * 2.6) + 'px'; }); }
+  const gl = $('#glow'); if (gl) gl.style.setProperty('--lvl', Math.min(1, 0.45 + r.rms * 6));
+  if (r.freq && r.clarity >= 0.88 && r.freq < 1100) { OU.hist.push(r.freq); if (OU.hist.length > 7) OU.hist.shift(); OU.ult = t; }
+  else if (t - OU.ult > 700) { OU.hist = []; OU.okDesde = 0; }
+  if (OU.hist.length < 3) { if (t - OU.ult > 1500) { const g = $('#ghz'); if (g && !OU.cego) { g.textContent = 'Toque uma corda'; } } return; }
+  const f = DSP.mediana(OU.hist), af = notasAfin().notas;
+  const alvos = af.map(function (m) { return DSP.midiToFreq(m, a4()); });
+  let idx = OU.sel;
+  if (idx < 0) { let best = 1e9; alvos.forEach(function (a, i) { const c = Math.abs(1200 * Math.log2(f / a)); if (c < best) { best = c; idx = i; } }); }
+  const cents = 1200 * Math.log2(f / alvos[idx]);
+  OU.ultCents = cents; OU.ultIdx = idx;
+  // estabilidade (para o modo às cegas)
+  OU.cents.push(cents); if (OU.cents.length > 8) OU.cents.shift();
+  if (OU.cents.length >= 6) {
+    const mu = OU.cents.reduce(function (a, b) { return a + b; }, 0) / OU.cents.length;
+    const sd = Math.sqrt(OU.cents.reduce(function (a, b) { return a + (b - mu) * (b - mu); }, 0) / OU.cents.length);
+    if (sd < 3) OU.estavel = { idx: idx, cents: mu };
+  }
+  const nome = DSP.NOTAS[af[idx] % 12];
+  if (OU.cego) {
+    const g = $('#gnome'); if (g) g.textContent = '?';
+    const h = $('#ghz'); if (h) h.textContent = 'Ouvindo a corda ' + (af.length - idx) + '...';
+    return;
+  }
+  const g = $('#gnome'); if (g) g.textContent = nome;
+  const h = $('#ghz'); if (h) h.textContent = f.toFixed(1) + ' Hz · ' + (cents > 0 ? '+' : '') + cents.toFixed(0) + ' cents';
+  const ang = Math.max(-75, Math.min(75, (cents / 50) * 70));
+  const nd = $('#needle'); if (nd) nd.setAttribute('transform', 'rotate(' + ang.toFixed(1) + ' 195 250)');
+  af.forEach(function (_, i) { const b = $('#str' + i); if (b) b.classList.toggle('ok', i === idx && Math.abs(cents) <= 3); });
+  if (OU.sel >= 0 && idx !== OU.sel && Math.abs(1200 * Math.log2(f / alvos[OU.sel])) > 300) { setMsg('Esta nota está mais perto da corda ' + (af.length - idx) + '. Toque a corda selecionada.', 'info'); return; }
+  if (Math.abs(cents) <= 3) {
+    if (!OU.okDesde) OU.okDesde = t;
+    setMsg('Afinada! Fique com ela assim.', 'ok');
+    if (t - OU.okDesde > 600 && !OU.feito[idx]) {
+      OU.feito[idx] = 1; Store.s.oui.tuned++; const gx = Store.award('afinar', 3); Store.missao('afinar');
+      toast('Corda ' + (af.length - idx) + ' afinada' + (gx ? ' (+' + gx + ' XP)' : ''));
+    }
+  } else {
+    OU.okDesde = 0;
+    setMsg(cents < 0 ? 'Está baixa: aperte um pouco a tarraxa.' : 'Está alta: afrouxe um pouco a tarraxa.', 'bad');
+  }
+}
+ACT.revelar = function () {
+  const e = OU.estavel || (OU.ultCents != null ? { idx: OU.ultIdx, cents: OU.ultCents } : null);
+  const box = $('#revelado'); if (!box) return;
+  if (!e || Date.now() - OU.ult > 8000) { box.style.display = 'block'; box.innerHTML = 'Não ouvi uma corda estável. Toque a corda, deixe soar e tente de novo.'; return; }
+  const err = Math.abs(e.cents), af = notasAfin().notas;
+  const nivel = err <= 5 ? 'Ouro' : err <= 8 ? 'Prata' : err <= 15 ? 'Bronze' : 'Continue treinando';
+  const s = Store.s.oui; s.blind.push(Math.round(err * 10) / 10); s.blind = s.blind.slice(-30);
+  const xp = err <= 5 ? 15 : err <= 8 ? 10 : err <= 15 ? 6 : 2;
+  const gx = Store.award('afinar', xp); Store.missao('afinar'); Store.missao('ouvido');
+  box.style.display = 'block';
+  box.innerHTML = '<span class="up am">Corda ' + (af.length - e.idx) + ' · ' + DSP.NOTAS[af[e.idx] % 12] + '</span><h2 style="margin-top:4px">' + (e.cents > 0 ? '+' : '') + e.cents.toFixed(1) + ' cents</h2>' +
+    '<p>' + nivel + (gx ? ' · +' + gx + ' XP' : '') + '</p><p class="small dim" style="margin-top:6px">' + (err <= 5 ? 'Seu ouvido está no nível do afinador.' : e.cents < 0 ? 'A corda ficou baixa. Suba a tensão aos poucos.' : 'A corda ficou alta. Afrouxe um pouco e suba de novo.') + '</p>';
+  OU.estavel = null; OU.cents = []; chrome();
+};
+
+/* ---------- TREINAR: jogos ---------- */
+function vTreinar() {
+  const s = Store.s.oui;
+  const J = [
+    ['alto', 'Alto ou baixo?', 'Compare duas notas e diga qual é mais aguda. A diferença diminui conforme você acerta.', 'Melhor limiar: ' + (s.thr < 60 ? Math.round(s.thr) + ' cents' : '–')],
+    ['bateu', 'Bateu ou não?', 'Ouça duas notas juntas e decida se o som pulsa (batimentos) ou está limpo.', 'Melhor: ' + (s.beat < 99 ? s.beat + ' cents' : '–')],
+    ['corda', 'Qual corda está desafinada?', 'Seis cordas soam em sequência e uma delas está fora. Qual?', 'Funciona sem microfone'],
+    ['tarraxa', 'Afine a tarraxa', 'Mova o controle até a sua nota igualar a referência. Sem números na tela.', 'Funciona sem microfone'],
+    ['cantar', 'Cante a nota', 'Ouça uma nota e cante a mesma altura. O microfone confere.', 'Notas certas: ' + s.sing]
+  ];
+  return '<p class="dim" style="margin-top:12px">Jogos de ouvido. Use fone para ouvir melhor. A maior parte funciona sem microfone.</p>' +
+    J.map(function (j) { return '<button class="gen" data-a="go" data-p="ouvido|jogo/' + j[0] + '"><h3>' + j[1] + '</h3><p class="small dim" style="margin-top:4px">' + j[2] + '</p><p class="small am" style="margin-top:6px">' + j[3] + '</p></button>'; }).join('');
+}
+const JOGOS = (function () {
+  const G = { rod: 0, ac: 0, d: 40, seq: 0, idx: 0, fim: false, timers: [] };
+  const limparTimers = function () { G.timers.forEach(clearTimeout); G.timers = []; if (G.tom) { G.tom.stop(); G.tom = null; } if (G.tom2) { G.tom2.stop(); G.tom2 = null; } if (G.cid) { clearInterval(G.cid); G.cid = null; } };
+  const cab = function (t, extra) { return '<button class="btn g sm" style="margin-top:8px" data-a="go" data-p="ouvido|treinar">‹ Jogos</button><h1 style="margin-top:12px">' + t + '</h1><p class="small dim" style="margin-top:4px" id="jrod">Rodada ' + Math.min(10, G.rod + 1) + ' de 10</p>' + (extra || ''); };
+  const fim = function (titulo) {
+    return '<div class="card hl"><h2>' + titulo + '</h2><p style="margin-top:6px">Acertos: ' + G.ac + ' de 10.</p><div class="row" style="margin-top:12px"><button class="btn" data-a="jogoDenovo">Jogar de novo</button><button class="btn g" data-a="go" data-p="ouvido|treinar">Outros jogos</button></div></div>';
+  };
+  const feedback = function (ok, txt) { const f = $('#jf'); if (f) { f.className = ok ? 'ok' : 'bad'; f.textContent = txt; } };
+  const reiniciar = function (id) { limparTimers(); Object.assign(G, { rod: 0, ac: 0, d: 40, seq: 0, idx: 0, fim: false, id: id, pronto: -1, f0: null, resp: false }); };
+  const proxima = function () {
+    G.rod++;
+    if (G.rod >= 10) { G.fim = true; Store.missao('ouvido'); Store.mudou(); }
+    G.timers.push(setTimeout(function () { if (UI.tab === 'ouvido' && (UI.sub || '').indexOf('jogo') === 0) render(); }, 1300));
+  };
+  const ver = function (id) {
+    if (G.id !== id || (G.novo)) { reiniciar(id); G.novo = false; }
+    aoSair(limparTimers);
+    if (id === 'alto') return vAlto();
+    if (id === 'bateu') return vBateu();
+    if (id === 'corda') return vCorda();
+    if (id === 'tarraxa') return vTarraxa();
+    if (id === 'cantar') return vCantar();
+    return '<p>Jogo não encontrado.</p>';
+  };
+  /* --- Alto ou baixo? --- */
+  function vAlto() {
+    if (G.fim) return cab('Alto ou baixo?') + fim('Fim da série');
+    if (!G.f0 || G.pronto !== G.rod) {
+      const nt = notasAfin().notas, m = nt[rnd(nt.length)] + (rnd(2) ? 12 : 0);
+      G.f0 = DSP.midiToFreq(m, a4()); G.sinal = rnd(2) ? 1 : -1; G.f1 = G.f0 * Math.pow(2, (G.sinal * G.d) / 1200); G.pronto = G.rod; G.resp = false;
+    }
+    pos(function () { tocarAlto(); });
+    return cab('Alto ou baixo?') + '<div class="card"><p>Ouça as duas notas. A <b>segunda</b> é mais aguda ou mais grave que a primeira?</p><div class="grid2" style="margin-top:12px"><button class="btn" data-a="jAlto" data-p="1">Mais aguda</button><button class="btn" data-a="jAlto" data-p="-1">Mais grave</button></div>' +
+      '<button class="btn g full" style="margin-top:10px" data-a="jReplay">Ouvir de novo</button><div id="jf" class="info hide" style="margin-top:12px" role="status"></div></div>';
+  }
+  function tocarAlto() { Som.init(); Som.pluck(G.f0, null, 1.2, 0.55); Som.pluck(G.f1, Som.ctx.currentTime + 1.3, 1.2, 0.55); }
+  ACT.jReplay = function () { if (G.id === 'alto') tocarAlto(); if (G.id === 'bateu') tocarBateu(); if (G.id === 'corda') tocarCorda(); };
+  ACT.jAlto = function (p) {
+    if (G.resp) return; G.resp = true;
+    const ok = +p === G.sinal; const f = $('#jf'); f.classList.remove('hide');
+    if (ok) { G.ac++; G.seq++; Store.award('ouvido', 3); if (G.seq >= 2) { Store.s.oui.thr = Math.min(Store.s.oui.thr, Math.round(G.d)); G.d = Math.max(2, G.d * 0.75); G.seq = 0; } }
+    else { G.seq = 0; G.d = Math.min(100, G.d * 1.35); }
+    feedback(ok, ok ? 'Certo! A diferença era de ' + Math.round(G.d) + ' cents (próxima rodada mais difícil).' : 'Era ' + (G.sinal > 0 ? 'mais aguda' : 'mais grave') + '. Vamos com uma diferença maior.');
+    proxima();
+  };
+  /* --- Bateu ou não? --- */
+  const Ds = [25, 15, 10, 8, 6, 4];
+  function vBateu() {
+    if (G.fim) return cab('Bateu ou não?') + fim('Fim da série');
+    if (G.pronto !== G.rod) { G.f = [196, 220, 246.94][rnd(3)]; G.tipo = rnd(2) ? 'pulsa' : 'limpo'; G.sg = rnd(2) ? 1 : -1; G.pronto = G.rod; G.resp = false; }
+    pos(function () { tocarBateu(); });
+    return cab('Bateu ou não?') + '<div class="card"><p>Duas notas vão soar juntas por alguns segundos. O volume <b>pulsa</b> (batimentos) ou o som está <b>limpo</b>?</p>' +
+      '<p class="small dim" style="margin-top:6px">Diferença atual: ' + Ds[G.idx] + ' cents (quando houver batimento).</p>' +
+      '<div class="grid2" style="margin-top:12px"><button class="btn" data-a="jBateu" data-p="pulsa">Pulsa</button><button class="btn" data-a="jBateu" data-p="limpo">Limpo</button></div>' +
+      '<button class="btn g full" style="margin-top:10px" data-a="jReplay">Ouvir de novo</button><div id="jf" class="info hide" style="margin-top:12px" role="status"></div></div>';
+  }
+  function tocarBateu() {
+    Som.init(); limparTimersAudio();
+    G.tom = Som.tom(G.f, 0.2); G.tom2 = Som.tom(G.tipo === 'pulsa' ? G.f * Math.pow(2, (G.sg * Ds[G.idx]) / 1200) : G.f, 0.2);
+    G.timers.push(setTimeout(limparTimersAudio, 6000));
+  }
+  function limparTimersAudio() { if (G.tom) { G.tom.stop(); G.tom = null; } if (G.tom2) { G.tom2.stop(); G.tom2 = null; } }
+  ACT.jBateu = function (p) {
+    if (G.resp) return; G.resp = true; limparTimersAudio();
+    const ok = p === G.tipo; $('#jf').classList.remove('hide');
+    if (ok) { G.ac++; G.seq++; Store.award('ouvido', 3); if (G.seq >= 4) { Store.s.oui.beat = Math.min(Store.s.oui.beat, Ds[G.idx]); G.idx = Math.min(Ds.length - 1, G.idx + 1); G.seq = 0; } }
+    else { G.seq = 0; G.idx = Math.max(0, G.idx - 1); }
+    feedback(ok, ok ? 'Certo!' : 'Era ' + (G.tipo === 'pulsa' ? 'pulsando' : 'limpo') + '. Ouça de novo com calma.');
+    proxima();
+  };
+  /* --- Qual corda? --- */
+  function vCorda() {
+    if (G.fim) return cab('Qual corda está desafinada?') + fim('Fim da série');
+    if (G.pronto !== G.rod) { G.j = rnd(6); G.sg = rnd(2) ? 1 : -1; G.pronto = G.rod; G.resp = false; }
+    const nt = DATA.AFINACOES.padrao.notas;
+    pos(function () { tocarCorda(); });
+    return cab('Qual corda está desafinada?') + '<div class="card"><p>Ouça as seis cordas, da 6ª para a 1ª. Uma está fora. Qual?</p>' +
+      '<div class="strs">' + nt.map(function (m, i) { return '<button class="str" data-a="jCorda" data-p="' + i + '" aria-label="Corda ' + (6 - i) + '">' + (6 - i) + '</button>'; }).join('') + '</div>' +
+      '<button class="btn g full" style="margin-top:12px" data-a="jReplay">Ouvir de novo</button><div id="jf" class="info hide" style="margin-top:12px" role="status"></div></div>';
+  }
+  function tocarCorda() {
+    Som.init(); const nt = DATA.AFINACOES.padrao.notas, t0 = Som.ctx.currentTime + 0.05;
+    nt.forEach(function (m, i) { const f = DSP.midiToFreq(m, a4()) * (i === G.j ? Math.pow(2, (G.sg * G.d) / 1200) : 1); Som.pluck(f, t0 + i * 0.7, 1.3, 0.55); });
+  }
+  ACT.jCorda = function (p) {
+    if (G.resp) return; G.resp = true;
+    const ok = +p === G.j; $('#jf').classList.remove('hide');
+    if (ok) { G.ac++; Store.award('ouvido', 4); G.d = Math.max(5, G.d * 0.8); } else G.d = Math.min(100, G.d * 1.3);
+    feedback(ok, ok ? 'Certo! Era a corda ' + (6 - G.j) + '.' : 'Era a corda ' + (6 - G.j) + ' (' + (G.sg > 0 ? 'alta' : 'baixa') + ').');
+    proxima();
+  };
+  /* --- Afine a tarraxa --- */
+  function vTarraxa() {
+    if (G.fim) return cab('Afine a tarraxa') + fim('Fim da série');
+    if (G.pronto !== G.rod) { const nt = notasAfin().notas; G.f = DSP.midiToFreq(nt[rnd(nt.length)] + 12, a4()); G.alvo = 20 + Math.random() * 60; G.v = Math.random() < 0.5 ? 5 + Math.random() * 10 : 85 + Math.random() * 10; G.pronto = G.rod; G.resp = false; }
+    return cab('Afine a tarraxa') + '<div class="card"><p>Toque a <b>referência</b>, depois a <b>sua nota</b> e mova o controle até as duas soarem iguais.</p>' +
+      '<div class="grid2" style="margin-top:12px"><button class="btn o" data-a="jRef">Ouvir referência</button><button class="btn o" id="jmin" data-a="jMin">Ouvir a minha</button></div>' +
+      '<label class="small dim" for="jsl" style="margin-top:12px;display:block">Tarraxa (mais grave ← → mais aguda)</label><input id="jsl" type="range" min="0" max="100" step="0.1" value="' + G.v + '" data-i="jSl">' +
+      '<button class="btn full" style="margin-top:8px" data-a="jConf">Conferir</button><div id="jf" class="info hide" style="margin-top:12px" role="status"></div></div>';
+  }
+  ACT.jRef = function () { Som.init(); limparTimersAudio(); Som.pluck(G.f, null, 2.4, 0.55); };
+  ACT.jMin = function () {
+    Som.init();
+    if (G.tom) { limparTimersAudio(); $('#jmin').textContent = 'Ouvir a minha'; return; }
+    G.tom = Som.tom(minhaFreq(), 0.2); $('#jmin').textContent = 'Parar';
+  };
+  const minhaFreq = function () { return G.f * Math.pow(2, ((G.v - G.alvo) * 1.2) / 1200); };
+  INP.jSl = function (v) { G.v = +v; if (G.tom) G.tom.freq(minhaFreq()); };
+  ACT.jConf = function () {
+    if (G.resp) return; G.resp = true; limparTimersAudio(); const b = $('#jmin'); if (b) b.textContent = 'Ouvir a minha';
+    const err = Math.abs(G.v - G.alvo) * 1.2; $('#jf').classList.remove('hide');
+    const ok = err <= 10; if (ok) { G.ac++; Store.award('ouvido', 4); }
+    feedback(ok, 'Erro de ' + err.toFixed(1) + ' cents' + (ok ? ': muito bom!' : ': tente de novo na próxima.'));
+    proxima();
+  };
+  /* --- Cante a nota --- */
+  function vCantar() {
+    if (G.fim) return cab('Cante a nota') + fim('Fim da série');
+    if (G.pronto !== G.rod) { G.m = 52 + rnd(13); G.pronto = G.rod; G.resp = false; G.t0 = 0; G.ok = 0; }
+    pos(function () { aoSair(function () { Mic.parar(); }); });
+    return cab('Cante a nota') + '<div class="card"><p>Ouça a nota, depois cante a mesma altura (em qualquer oitava) e sustente por um instante.</p>' +
+      '<div class="grid2" style="margin-top:12px"><button class="btn o" data-a="jRefC">Ouvir a nota</button><button class="btn" data-a="jCantar">Começar a cantar</button></div>' +
+      '<div class="row" style="margin-top:12px"><div class="meter" id="meter" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div><span class="mono small dim" id="jcnt"></span></div>' +
+      '<div id="jf" class="info hide" style="margin-top:12px" role="status"></div></div>';
+  }
+  ACT.jRefC = function () { Som.init(); Som.pluck(DSP.midiToFreq(G.m, a4()), null, 2.2, 0.55); };
+  ACT.jCantar = async function () {
+    Som.init(); const ok = await Mic.iniciar(); const f = $('#jf'); f.classList.remove('hide');
+    if (!ok) { feedback(false, msgMic()); return; }
+    feedback(true, 'Cante agora...'); f.className = 'info';
+    const alvo = DSP.midiToFreq(G.m, a4()); let seguidos = 0; const t0 = Date.now(); G.hist = [];
+    if (G.cid) clearInterval(G.cid);
+    G.cid = setInterval(function () {
+      const r = Mic.altura(), med = $('#meter');
+      if (med) { const n = Math.min(8, Math.round(r.rms * 90)); Array.prototype.forEach.call(med.children, function (c, i) { c.classList.toggle('on', i < n); c.style.height = (6 + i * 2.6) + 'px'; }); }
+      if (r.freq && r.clarity > 0.85) {
+        let c = (1200 * Math.log2(r.freq / alvo)) % 1200; if (c > 600) c -= 1200; if (c < -600) c += 1200;
+        const cnt = $('#jcnt'); if (cnt) cnt.textContent = (c > 0 ? '+' : '') + Math.round(c) + ' cents';
+        if (Math.abs(c) <= 35) seguidos++; else seguidos = 0;
+      } else seguidos = 0;
+      if (seguidos >= 12) { clearInterval(G.cid); G.cid = null; G.resp = true; G.ac++; Store.s.oui.sing++; Store.award('ouvido', 4); feedback(true, 'Afinadíssimo! Você acertou a nota.'); proxima(); }
+      else if (Date.now() - t0 > 12000) { clearInterval(G.cid); G.cid = null; G.resp = true; feedback(false, 'Não deu desta vez. Ouça de novo a nota e tente sustentar.'); proxima(); }
+    }, 70);
+  };
+  ACT.jogoDenovo = function () { G.novo = true; G.id = null; render(); };
+  return { ver: ver };
+})();
+
+/* ---------- APRENDER: trilha do ouvido ---------- */
+function vAprender() {
+  const s = Store.s.oui, nv = Store.ouvidoNivel();
+  const botao = function (n) {
+    const key = 'l' + n; if ([0, 2, 3, 4].indexOf(n) < 0) return '';
+    if (s.learn[key]) return '<span class="fo small">Lido ✓</span>';
+    return '<button class="btn o sm" style="margin-top:8px" data-a="entendi" data-p="' + key + '">Entendi</button>' + (n === 3 && !s.tunedManual ? ' <button class="btn g sm" style="margin-top:8px" data-a="fizManual">Já fiz no meu instrumento</button>' : '');
+  };
+  return '<div class="card hl" style="margin-top:12px"><span class="up am">Seu nível</span><h2 style="margin-top:4px">' + nv + ' de 8</h2>' + barraProg(nv, 8) +
+    '<p class="small dim" style="margin-top:8px">A meta do Afinadim: você afinar o instrumento de ouvido e usar o afinador só para conferir ajustes finos.</p></div>' +
+    DATA.OUVIDO_NIVEIS.map(function (l) {
+      const estado = l.n < nv ? 'd' : l.n === nv ? 'c' : '';
+      return '<div class="card"><div class="row"><span class="dot ' + estado + '">' + (l.n < nv ? '✓' : l.n) + '</span><h3>' + esc(l.nome) + '</h3></div>' +
+        '<p style="margin-top:8px">' + esc(l.texto) + '</p><p class="small am" style="margin-top:8px"><b>Missão:</b> ' + esc(l.missao) + '</p>' + botao(l.n) + '</div>';
+    }).join('');
+}
+ACT.entendi = function (k) { Store.s.oui.learn[k] = 1; Store.award('ouvido', 5); Store.mudou(); toast('Anotado!'); render(); };
+ACT.fizManual = function () { Store.s.oui.tunedManual = 1; Store.s.oui.learn.l3 = 1; Store.mudou(); render(); };
+
+/* ===== UI: PALCO (player de cifra com letra, com escuta opcional) ===== */
+let P = null;
+const PALCO = {
+  abrir: function (id, opt) { novoP(id, opt || {}); go('palco', 'p/' + id); }
+};
+function novoP(id, opt) {
+  const m = DATA.MUSICAS[id], segs = [], lineStart = {};
+  m.linhas.forEach(function (l, li) { l.forEach(function (s, si) { segs.push({ c: s.c, t: s.t, li: li, si: si, b: s.b || 4 }); }); });
+  segs.forEach(function (s, i) { if (lineStart[s.li] == null) lineStart[s.li] = i; });
+  P = { id: id, m: m, segs: segs, lineStart: lineStart, tempo: opt.tempo || 1, lessonId: opt.lessonId || null,
+    modo: Store.s.cfg.rec ? 'espera' : 'livre', idx: 0, estado: 'parado', acertos: 0, erros: 0, errSeg: 0, missLinha: 0, okc: 0, errc: 0,
+    pico: 0, dip: true, ultimo: null, tSuc: 0, rel: null, cid: null, k: -4, sb: 0, heardSeg: false, metro: true, stars: 0, cred: null };
+  const set = []; segs.forEach(function (s) { if (set.indexOf(s.c) < 0) set.push(s.c); });
+  P.vocab = set;
+}
+function pararTudo() {
+  if (!P) return;
+  if (P.rel) P.rel.parar(); P.rel = null;
+  if (P.cid) clearInterval(P.cid); P.cid = null;
+  if (P.estado === 'rodando') P.estado = 'parado';
+  const b = $('#pgo'); if (b) b.textContent = 'Começar';
+}
+function pStatus(t, tipo) { const e = $('#pstatus'); if (e) { e.className = tipo || 'info'; e.textContent = t; } }
+function pMedidor(rms) {
+  const med = $('#meter'); if (!med) return;
+  const n = Math.min(8, Math.round(rms * 90));
+  Array.prototype.forEach.call(med.children, function (c, i) { c.classList.toggle('on', i < n); c.style.height = (6 + i * 2.6) + 'px'; });
+}
+
+VIEWS.palco = function () {
+  const [k, v] = parSub();
+  if (k === 'p' && P && P.id === v) return vPlayer();
+  if (k === 'p') { novoP(v, {}); return vPlayer(); }
+  const s = Store.s;
+  return '<h1 style="margin-top:8px">Palco</h1><p class="dim">Escolha uma música. O Afinadim pode ouvir você tocar e acompanhar no seu ritmo. Todas as letras são originais do projeto.</p>' +
+    '<label class="chk" style="margin-top:8px"><input type="checkbox" data-c="rec" ' + (s.cfg.rec ? 'checked' : '') + '> Ouvir o que eu toco (precisa de microfone)</label>' +
+    DATA.GENEROS.map(function (g) {
+      const m = DATA.MUSICAS[g.musica], melhor = s.done['b:' + g.musica] || 0;
+      return '<button class="gen" style="--gc:' + g.cor + '" data-a="abrirPalco" data-p="' + g.musica + '|' + (g.niv === 1 ? 0.7 : 0.7) + '|"><div class="row sp"><h3>' + esc(m.titulo) + '</h3><span class="stars">' + estrelas(melhor) + '</span></div>' +
+        '<p class="small dim" style="margin-top:4px">' + esc(g.nome) + ' · nível ' + g.niv + ' · ' + m.bpm + ' bpm · acordes: ' + esc(m.linhas[0].map(function (x) { return x.c; }).join(' ')) + '...</p></button>';
+    }).join('');
+};
+CHG.rec = function (v, el) { Store.s.cfg.rec = el.checked; Store.mudou(); };
+
+function vPlayer() {
+  const m = P.m, g = DATA.GENEROS.find(function (x) { return x.id === m.genero; });
+  pos(function () { aoSair(function () { pararTudo(); Mic.parar(); }); marcar(false); });
+  const modoTxt = { espera: 'A música espera por você. Toque cada acorde no seu tempo.', desafio: 'Acompanhe o metrônomo. Se errar 2 vezes na linha, volto ao começo dela.', livre: 'Sem escuta. Toque junto e marque Consegui no final.' }[P.modo];
+  return '<button class="btn g sm" style="margin-top:8px" data-a="go" data-p="palco">‹ Músicas</button>' +
+    '<h1 style="margin-top:10px">' + esc(m.titulo) + '</h1><p class="small dim" style="margin-top:4px">' + esc(g.nome) + ' · tom de ' + esc(m.tom) + ' · ' + m.bpm + ' bpm · letra original</p>' +
+    '<div class="seg" role="tablist">' + [['espera', 'Espera'], ['desafio', 'Desafio'], ['livre', 'Livre']].map(function (a) {
+      return '<button role="tab" class="' + (P.modo === a[0] ? 'on' : '') + '" data-a="pModo" data-p="' + a[0] + '" ' + (P.estado === 'rodando' ? 'disabled' : '') + '>' + a[1] + '</button>';
+    }).join('') + '</div>' +
+    '<p class="small dim" style="margin-top:8px" id="pmodotxt">' + modoTxt + '</p>' +
+    '<div class="row wrap" style="margin-top:10px"><label class="small dim" for="ptempo">Andamento</label><select id="ptempo" data-c="pTempo" style="width:auto">' + [0.5, 0.7, 0.85, 1].map(function (t) { return '<option value="' + t + '" ' + (Math.abs(P.tempo - t) < 0.01 ? 'selected' : '') + '>' + Math.round(t * 100) + '% (' + Math.round(m.bpm * t) + ' bpm)</option>'; }).join('') + '</select>' +
+    '<label class="chk" style="min-height:40px"><input type="checkbox" data-c="pMetro" ' + (P.metro ? 'checked' : '') + '> Metrônomo</label></div>' +
+    '<div class="cifra" id="cifra">' + m.linhas.map(function (l, li) {
+      return '<div class="lin" id="lin' + li + '">' + P.segs.filter(function (s) { return s.li === li; }).map(function (s) {
+        const i = P.segs.indexOf(s);
+        return '<div class="sg" id="sg' + i + '"><span class="c">' + esc(s.c) + '</span><span class="t">' + esc(s.t) + '</span></div>';
+      }).join('') + '</div>';
+    }).join('') + '</div>' +
+    '<div class="card hl" id="pcard"><div class="row"><div id="pdiag"></div><div class="grow col"><span class="up am">Agora toque</span><b id="pnome" style="font-family:var(--f-d);font-size:44px;line-height:1"></b><span class="small dim" id="pprox"></span></div></div>' +
+    '<div id="pstatus" class="info" style="margin-top:12px" role="status">Toque em Começar.</div>' +
+    '<div class="row" style="margin-top:10px"><div class="meter" id="meter" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div><span class="mono small dim" id="pcont"></span></div></div>' +
+    '<div class="grid2" style="margin-top:12px"><button class="btn" id="pgo" data-a="pGo">' + (P.estado === 'rodando' ? 'Parar' : 'Começar') + '</button><button class="btn g" data-a="pLinha">Voltar à linha</button></div>' +
+    '<div class="row wrap" style="margin-top:8px"><button class="btn g sm" data-a="pPular">Pular acorde</button><button class="btn g sm" data-a="pOuvir">Ouvir acorde</button></div>' +
+    '<div id="pfim"></div>' +
+    '<p class="small dim" style="margin-top:12px">Dica: use fone de ouvido se o Afinadim estiver tocando o metrônomo, para o microfone captar só o seu instrumento.</p>';
+}
+function marcar(rolar) {
+  if (!P) return;
+  P.segs.forEach(function (s, i) {
+    const e = $('#sg' + i); if (e) e.className = 'sg' + (i < P.idx ? ' past' : i === P.idx && P.estado !== 'fim' ? ' now' : '');
+  });
+  P.m.linhas.forEach(function (_, li) { const e = $('#lin' + li); if (e) e.classList.toggle('cur', P.segs[Math.min(P.idx, P.segs.length - 1)].li === li && P.estado !== 'fim'); });
+  const seg = P.segs[Math.min(P.idx, P.segs.length - 1)], prox = P.segs[P.idx + 1];
+  const d = $('#pdiag'); if (d) d.innerHTML = chordSVG(seg.c, 104);
+  const n = $('#pnome'); if (n) n.textContent = seg.c;
+  const pr = $('#pprox'); if (pr) pr.textContent = prox ? 'Depois: ' + prox.c : 'Último acorde';
+  if (rolar !== false) { const e = $('#sg' + P.idx); if (e && e.scrollIntoView) e.scrollIntoView({ block: 'center', behavior: 'smooth' }); }
+}
+ACT.pModo = function (m) {
+  if (P.estado === 'rodando') return; P.modo = m;
+  render();
+};
+CHG.pTempo = function (v) { P.tempo = +v; };
+CHG.pMetro = function (v, el) { P.metro = el.checked; };
+ACT.pOuvir = function () { Som.init(); Som.strum(P.segs[Math.min(P.idx, P.segs.length - 1)].c, 'D'); };
+ACT.pPular = function () { if (P.estado === 'rodando') { if (P.modo === 'espera') avancar(); else pStatus('No modo Desafio o tempo corre sozinho.', 'info'); } };
+ACT.pLinha = function () { if (P.estado !== 'rodando' && P.estado !== 'parado') return; voltarLinha('Ok.', true); };
+ACT.pGo = async function () {
+  if (P.estado === 'rodando') { pararTudo(); Mic.parar(); pStatus('Parado.', 'info'); return; }
+  Som.init();
+  if (P.estado === 'fim') { P.idx = 0; $('#pfim').innerHTML = ''; }
+  P.estado = 'parado'; P.acertos = 0; P.erros = 0; P.errSeg = 0; P.missLinha = 0; P.okc = 0; P.errc = 0; P.ultimo = null; P.idx = P.idx >= P.segs.length ? 0 : P.idx;
+  if (P.modo !== 'livre') {
+    pStatus('Pedindo acesso ao microfone...', 'info');
+    const ok = await Mic.iniciar();
+    if (!ok) { P.modo = 'livre'; render(); pStatus(msgMic() + ' Mudei para o modo Livre.', 'bad'); return; }
+    Mic.analisadorCroma(); Recog.definir(P.vocab);
+  }
+  $('#pgo').textContent = 'Parar'; P.estado = 'rodando';
+  document.querySelectorAll('.seg button').forEach(function (b) { b.disabled = true; });
+  marcar();
+  if (P.modo === 'espera') {
+    P.pico = 0; P.dip = true; P.tSuc = Date.now();
+    pStatus('Toque o ' + P.segs[P.idx].c + ' quando quiser.', 'info');
+    P.cid = setInterval(passoEspera, 110);
+  } else iniciarRelogio();
+};
+function lerAcorde() {
+  const r = Recog.ler(); pMedidor(r.rms);
+  const gl = $('#glow'); if (gl) gl.style.setProperty('--lvl', Math.min(1, 0.45 + r.rms * 6));
+  return r;
+}
+function passoEspera() {
+  if (P.estado !== 'rodando') return;
+  const seg = P.segs[P.idx], r = lerAcorde();
+  P.pico = Math.max(P.pico * 0.97, r.rms);
+  if (r.rms < 0.5 * P.pico || Date.now() - P.tSuc > 3000) P.dip = true;
+  const precisa = P.ultimo === seg.c && !P.dip;
+  if (r.best === seg.c && r.sim >= 0.7 && !precisa) P.okc++; else P.okc = 0;
+  const eco = (r.best === P.ultimo && !P.dip) || Date.now() - P.tSuc < 800; // acorde anterior ainda soando
+  if (r.best && r.best !== seg.c && !eco && r.sim >= 0.75 && r.margem >= 0.04 && r.rms >= 0.02) P.errc++; else P.errc = Math.max(0, P.errc - 1);
+  if (r.best && r.rms >= 0.02) pStatus('Ouvi ' + r.best + (r.best === seg.c ? ' ✓' : ''), r.best === seg.c ? 'ok' : 'info');
+  if (P.okc >= 2) { P.acertos++; P.ultimo = seg.c; P.dip = false; P.pico = r.rms; P.tSuc = Date.now(); P.errSeg = 0; avancar(); }
+  else if (P.errc >= 4) {
+    P.erros++; P.errSeg++; P.errc = 0;
+    pStatus('Ouvi ' + r.best + ', esperava ' + seg.c + '. Confira os dedos e toque de novo.', 'bad');
+    if (P.errSeg >= 3) voltarLinha('Três tentativas no ' + seg.c + '.');
+  }
+}
+function avancar() {
+  P.idx++; P.okc = 0; P.errc = 0; P.errSeg = 0;
+  if (P.idx >= P.segs.length) { fimMusica(); return; }
+  if (P.segs[P.idx].li !== P.segs[P.idx - 1].li) P.missLinha = 0;
+  marcar();
+}
+function voltarLinha(motivo, manual) {
+  const li = P.segs[Math.min(P.idx, P.segs.length - 1)].li;
+  P.idx = P.lineStart[li]; P.errSeg = 0; P.missLinha = 0; P.okc = 0; P.errc = 0; P.ultimo = null; marcar();
+  pStatus(motivo + ' Voltando ao começo da linha ' + (li + 1) + '.', 'info');
+  if (P.modo !== 'espera' && P.estado === 'rodando' && !manual) {
+    pararRelogio();
+    P.tempo = Math.max(0.5, Math.round((P.tempo - 0.1) * 100) / 100);
+    const sel = $('#ptempo'); if (sel) { let melhor = 0.5; [0.5, 0.7, 0.85, 1].forEach(function (t) { if (t <= P.tempo + 0.001) melhor = t; }); sel.value = melhor; P.tempo = melhor; }
+    setTimeout(function () { if (P && P.estado === 'rodando') iniciarRelogio(); }, 1600);
+  }
+}
+function pararRelogio() { if (P.rel) P.rel.parar(); P.rel = null; if (P.cid) clearInterval(P.cid); P.cid = null; }
+function iniciarRelogio() {
+  P.k = -4; P.sb = 0; P.heardSeg = false; P.okc = 0; P.ultimo = null;
+  marcar();
+  if (P.modo === 'desafio') P.cid = setInterval(function () {
+    if (P.estado !== 'rodando' || P.k < 0) return;
+    const seg = P.segs[P.idx]; if (!seg) return;
+    const r = lerAcorde();
+    if (r.best === seg.c && r.sim >= 0.68) P.okc++; else P.okc = 0;
+    if (P.okc >= 2) P.heardSeg = true;
+    if (r.best && r.rms >= 0.02) pStatus('Ouvi ' + r.best + (r.best === seg.c ? ' ✓' : ''), r.best === seg.c ? 'ok' : 'info');
+  }, 110);
+  P.rel = Relogio();
+  P.rel.iniciar(function () { return 60000 / (P.m.bpm * P.tempo); }, function (n, quando) {
+    if (P.estado !== 'rodando') return;
+    const k = P.k++;
+    const cont = $('#pcont');
+    if (k < 0) { Som.click(quando, k === -4); if (cont) cont.textContent = 'Contagem ' + (k + 5); pStatus('Prepare-se... ' + (k + 5), 'info'); return; }
+    if (cont) cont.textContent = '';
+    if (P.metro) Som.click(quando, k % 4 === 0);
+    if (k === 0) { P.heardSeg = false; marcar(); pStatus('Valendo!', 'info'); return; }
+    const seg = P.segs[P.idx];
+    if (k - P.sb >= seg.b) {
+      if (P.modo === 'desafio') {
+        if (P.heardSeg) P.acertos++; else { P.erros++; P.missLinha++; }
+      } else P.acertos++;
+      P.sb = k; P.idx++; P.heardSeg = false; P.okc = 0;
+      if (P.idx >= P.segs.length) { fimMusica(); return; }
+      if (P.segs[P.idx].li !== seg.li) P.missLinha = 0;
+      if (P.modo === 'desafio' && P.missLinha >= 2) { voltarLinha('Duas falhas nesta linha.'); return; }
+      marcar();
+    }
+  }, 40);
+}
+function fimMusica() {
+  const total = P.segs.length;
+  pararTudo(); P.estado = 'fim';
+  let stars = 1, aviso = '';
+  if (P.modo === 'desafio') { const acc = P.acertos / total; stars = acc >= 0.9 ? 3 : acc >= 0.7 ? 2 : acc >= 0.5 ? 1 : 0; aviso = 'Acertos: ' + P.acertos + ' de ' + total + '.'; }
+  else if (P.modo === 'espera') { stars = P.erros <= 2 ? 3 : P.erros <= 6 ? 2 : 1; if (P.tempo >= 0.99) stars = Math.min(stars, 2); aviso = 'Tentativas erradas: ' + P.erros + '.'; }
+  else aviso = 'Modo Livre vale 1 estrela (sem escuta).';
+  const s = Store.s, g = P.m.genero;
+  let ganho = 0;
+  if (stars > 0) {
+    const ant = s.done['b:' + P.id] || 0;
+    const ok70 = (P.modo === 'espera' || P.tempo <= 0.76), ok100 = P.modo === 'desafio' ? P.tempo >= 0.99 : false;
+    if (ok70 && stars >= 1) s.done[g + ':musica'] = Math.max(s.done[g + ':musica'] || 0, stars);
+    if (ok100 && stars >= 2) { s.done[g + ':musica2'] = Math.max(s.done[g + ':musica2'] || 0, stars); s.done[g + ':musica'] = Math.max(s.done[g + ':musica'] || 0, stars); }
+    s.done['b:' + P.id] = Math.max(ant, stars);
+    ganho = Store.award('musica', stars * 15 + (ant ? 0 : 10)); Store.missao('musica');
+  }
+  const box = $('#pfim');
+  if (box) box.innerHTML = '<div class="card hl" role="status"><span class="up am">Música concluída</span><h2 style="margin-top:4px"><span class="stars">' + estrelas(stars) + '</span></h2><p style="margin-top:6px">' + aviso + (ganho ? ' +' + ganho + ' XP.' : '') + '</p>' +
+    (stars === 0 ? '<p class="small dim" style="margin-top:6px">Tente de novo em um andamento menor.</p>' : '') +
+    (P.modo === 'livre' ? '' : '') + '</div>';
+  pStatus(stars > 0 ? 'Muito bem!' : 'Quase lá.', stars > 0 ? 'ok' : 'bad');
+  const b = $('#pgo'); if (b) b.textContent = 'Tocar de novo';
+  document.querySelectorAll('.seg button').forEach(function (x) { x.disabled = false; });
+  marcar(false); chrome();
+}
+
+/* ===== UI: MAIS (Acordes, Ritmo, Progresso, Ajustes, Sobre) ===== */
+VIEWS.mais = function () {
+  const [k, v] = parSub();
+  if (k === 'acordes') return vAcordes(v);
+  if (k === 'ritmo') return vRitmo(v);
+  if (k === 'progresso') return vProgresso();
+  if (k === 'ajustes') return vAjustes();
+  if (k === 'sobre') return vSobre();
+  const itens = [['acordes', 'Acordes', 'Dicionário com diagramas, som e treino de troca'], ['ritmo', 'Ritmo', 'Metrônomo e levadas por gênero'], ['progresso', 'Progresso', 'Mapa-braço, patentes e conquistas'], ['ajustes', 'Ajustes', 'Instrumento, tema, microfone e dados'], ['sobre', 'Sobre o Afinadim', 'Créditos, privacidade e versão']];
+  return '<h1 style="margin-top:8px">Mais</h1>' + itens.map(function (i) {
+    return '<button class="gen" data-a="go" data-p="mais|' + i[0] + '"><h3>' + i[1] + '</h3><p class="small dim" style="margin-top:4px">' + i[2] + '</p></button>';
+  }).join('');
+};
+const voltarMais = '<button class="btn g sm" style="margin-top:8px" data-a="go" data-p="mais">‹ Mais</button>';
+
+/* ---------- ACORDES ---------- */
+const TR = { a: 'Am', b: 'Em', rod: false, n: 0, t0: 0, id: null, esp: '', manual: false, okc: 0, fim: null };
+UI.filtroAc = 'todos'; UI.acSel = '';
+function vAcordes(sel) {
+  if (sel) UI.acSel = sel;
+  const tipos = ['todos', 'maior', 'menor', 'sétima', 'suspenso', 'power'];
+  const nomes = Object.keys(DATA.ACORDES).filter(function (n) { return UI.filtroAc === 'todos' || DATA.ACORDES[n].tipo === UI.filtroAc; });
+  const s = UI.acSel && DATA.ACORDES[UI.acSel] ? UI.acSel : '';
+  const todos = Object.keys(DATA.ACORDES);
+  pos(function () { aoSair(trParar); });
+  return voltarMais + '<h1 style="margin-top:12px">Acordes</h1><p class="dim small" style="margin-top:4px">Toque em um acorde para ouvir e ver as notas. O "O" é corda solta e o "X" é corda que não se toca.</p>' +
+    (s ? '<div class="card hl"><div class="row"><div>' + chordSVG(s, 120) + '</div><div class="grow col"><h2 class="mono">' + esc(s) + '</h2><p class="small dim">Tipo: ' + esc(DATA.ACORDES[s].tipo) + '</p><p class="small mono">' + esc(nomesNotas(s)) + '</p>' +
+      '<div class="row wrap"><button class="btn sm" data-a="ouvirAcorde" data-p="' + s + '">Ouvir</button><button class="btn o sm" data-a="arpejo" data-p="' + s + '">Arpejo</button></div></div></div></div>' : '') +
+    '<div class="row wrap" style="margin-top:12px">' + tipos.map(function (t) { return '<button class="pill ' + (UI.filtroAc === t ? 'on' : '') + '" data-a="filtroAc" data-p="' + t + '">' + t + '</button>'; }).join('') + '</div>' +
+    '<div class="grid3" style="margin-top:12px">' + nomes.map(function (n) { return '<button class="chord" data-a="acSel" data-p="' + n + '" aria-label="Acorde ' + n + '">' + chordSVG(n, 88) + '<div class="mono">' + esc(n) + '</div></button>'; }).join('') + '</div>' +
+    '<h2 style="margin-top:24px">Treino de troca de acordes</h2><p class="dim small" style="margin-top:4px">Alterne entre dois acordes por 60 segundos. O Afinadim conta as trocas limpas que ouvir.</p>' +
+    '<div class="card"><div class="grid2"><div><label class="small dim" for="tra">Acorde A</label><select id="tra" data-c="trA">' + todos.map(function (n) { return '<option ' + (n === TR.a ? 'selected' : '') + '>' + esc(n) + '</option>'; }).join('') + '</select></div>' +
+    '<div><label class="small dim" for="trb">Acorde B</label><select id="trb" data-c="trB">' + todos.map(function (n) { return '<option ' + (n === TR.b ? 'selected' : '') + '>' + esc(n) + '</option>'; }).join('') + '</select></div></div>' +
+    '<div id="trpainel" style="margin-top:12px" role="status" aria-live="polite"></div>' +
+    '<button class="btn full" style="margin-top:10px" id="trgo" data-a="trGo">Começar 60 segundos</button>' +
+    '<p class="small dim" id="trrec" style="margin-top:8px">Melhor para este par: ' + (Store.s.trocas[TR.a + '>' + TR.b] || 0) + ' trocas</p></div>';
+}
+ACT.acSel = function (n) { UI.acSel = n; Som.init(); Som.strum(n, 'D'); render(); };
+ACT.filtroAc = function (t) { UI.filtroAc = t; render(); };
+ACT.arpejo = function (n) {
+  Som.init(); const ac = DATA.ACORDES[n], t0 = Som.ctx.currentTime + 0.03;
+  DSP.notasDoAcorde(ac.f).forEach(function (m, i) { Som.pluck(Som.freqMidi(m), t0 + i * 0.28, 1.6, 0.55); });
+};
+CHG.trA = function (v) { TR.a = v; render(); };
+CHG.trB = function (v) { TR.b = v; render(); };
+function trPainel() {
+  const e = $('#trpainel'); if (!e) return;
+  const rest = Math.max(0, 60 - Math.floor((Date.now() - TR.t0) / 1000));
+  e.innerHTML = '<div class="row sp"><span class="mono">' + rest + ' s</span><span class="mono am">' + TR.n + ' trocas</span></div>' +
+    '<div class="row" style="margin-top:8px"><b style="font-family:var(--f-d);font-size:56px;line-height:1">' + esc(TR.esp) + '</b><span class="dim small">' + (TR.manual ? 'Modo manual: toque em Troquei a cada troca.' : 'Toque este acorde.') + '</span></div>' +
+    (TR.manual ? '<button class="btn o full" style="margin-top:8px" data-a="trManual">Troquei</button>' : '');
+}
+function trParar() { if (TR.id) clearInterval(TR.id); TR.id = null; TR.rod = false; Mic.parar(); }
+ACT.trManual = function () { TR.n++; TR.esp = TR.esp === TR.a ? TR.b : TR.a; trPainel(); };
+ACT.trGo = async function () {
+  if (TR.rod) { trParar(); $('#trgo').textContent = 'Começar 60 segundos'; return; }
+  if (TR.a === TR.b) { toast('Escolha dois acordes diferentes.'); return; }
+  Som.init(); const ok = await Mic.iniciar(); TR.manual = !ok;
+  if (ok) { Mic.analisadorCroma(); Recog.definir([TR.a, TR.b]); } else $('#trrec').textContent = msgMic();
+  TR.rod = true; TR.n = 0; TR.t0 = Date.now(); TR.esp = TR.a; TR.okc = 0; $('#trgo').textContent = 'Parar'; trPainel();
+  TR.id = setInterval(function () {
+    if (Date.now() - TR.t0 >= 60000) { trFim(); return; }
+    if (!TR.manual) {
+      const r = Recog.ler();
+      if (r.best === TR.esp && r.sim >= 0.7) TR.okc++; else TR.okc = 0;
+      if (TR.okc >= 2) { TR.n++; TR.esp = TR.esp === TR.a ? TR.b : TR.a; TR.okc = 0; }
+    }
+    trPainel();
+  }, 110);
+};
+function trFim() {
+  const n = TR.n, manual = TR.manual; trParar();
+  const chave = TR.a + '>' + TR.b;
+  if (!manual) { Store.s.trocas[chave] = Math.max(Store.s.trocas[chave] || 0, n); }
+  const gx = manual ? 0 : Store.award('troca', Math.min(30, n)); Store.missao('troca');
+  const e = $('#trpainel'); if (e) e.innerHTML = '<div class="ok">Fim! ' + n + ' trocas em 60 s' + (gx ? ' (+' + gx + ' XP)' : '') + (manual ? ' (modo manual não vale recorde)' : '') + '</div>';
+  const b = $('#trgo'); if (b) b.textContent = 'Começar 60 segundos';
+  Store.mudou(); chrome();
+}
+
+/* ---------- RITMO ---------- */
+const MET = { bpm: 80, comp: 4, rod: false, rel: null, toques: [] };
+UI.lvSel = 'sertaneja';
+function vRitmo(aba) {
+  aba = aba || 'metro';
+  const seg = '<div class="seg">' + [['metro', 'Metrônomo'], ['levadas', 'Levadas']].map(function (a) { return '<button class="' + (aba === a[0] ? 'on' : '') + '" data-a="go" data-p="mais|ritmo/' + a[0] + '">' + a[1] + '</button>'; }).join('') + '</div>';
+  pos(function () { aoSair(metParar); });
+  if (aba === 'levadas') {
+    const gen = DATA.GENEROS.find(function (g) { return g.levada === UI.lvSel; }), m = gen ? DATA.MUSICAS[gen.musica] : null;
+    const set = []; if (m) m.linhas.forEach(function (l) { l.forEach(function (s) { if (set.indexOf(s.c) < 0) set.push(s.c); }); });
+    return voltarMais + '<h1 style="margin-top:12px">Ritmo</h1>' + seg +
+      '<div style="margin-top:12px"><label class="small dim" for="lvsel">Levada</label><select id="lvsel" data-c="lvSel">' + Object.keys(DATA.LEVADAS).map(function (k) { return '<option value="' + k + '" ' + (k === UI.lvSel ? 'selected' : '') + '>' + esc(DATA.LEVADAS[k].nome) + '</option>'; }).join('') + '</select></div>' +
+      vLevada(UI.lvSel, set.length ? set : ['Am', 'Em', 'G', 'C']);
+  }
+  return voltarMais + '<h1 style="margin-top:12px">Ritmo</h1>' + seg +
+    '<div class="card"><div class="row sp"><span class="up am">Metrônomo</span><span class="mono" id="metbpm">' + MET.bpm + ' bpm</span></div>' +
+    '<div class="beats" id="metbeats" aria-hidden="true">' + Array.from({ length: MET.comp }, function (_, i) { return '<i class="' + (i === 0 ? 'ac' : '') + '"></i>'; }).join('') + '</div>' +
+    '<input type="range" id="metsl" min="40" max="220" value="' + MET.bpm + '" data-i="metBpm" aria-label="Andamento em batidas por minuto">' +
+    '<div class="row" style="margin-top:6px"><button class="btn g sm" data-a="metAj" data-p="-5">-5</button><button class="btn g sm" data-a="metAj" data-p="-1">-1</button><button class="btn g sm" data-a="metAj" data-p="1">+1</button><button class="btn g sm" data-a="metAj" data-p="5">+5</button><button class="btn o sm" data-a="metTap">Tap</button></div>' +
+    '<div style="margin-top:10px"><label class="small dim" for="metcomp">Pulsos por compasso</label><select id="metcomp" data-c="metComp">' + [2, 3, 4, 6].map(function (n) { return '<option ' + (n === MET.comp ? 'selected' : '') + '>' + n + '</option>'; }).join('') + '</select></div>' +
+    '<button class="btn full" style="margin-top:12px" id="metgo" data-a="metGo">' + (MET.rod ? 'Parar' : 'Iniciar') + '</button></div>' +
+    '<p class="small dim" style="margin-top:10px">Comece em 60 bpm e só aumente quando o minuto estiver tranquilo.</p>';
+}
+CHG.lvSel = function (v) { UI.lvSel = v; UI.lv.id = ''; render(); };
+CHG.metComp = function (v) { MET.comp = +v; if (MET.rod) { metParar(); } render(); };
+function metParar() { if (MET.rel) MET.rel.parar(); MET.rel = null; MET.rod = false; const b = $('#metgo'); if (b) b.textContent = 'Iniciar'; }
+INP.metBpm = function (v) { MET.bpm = +v; const e = $('#metbpm'); if (e) e.textContent = MET.bpm + ' bpm'; };
+ACT.metAj = function (d) { MET.bpm = Math.max(40, Math.min(220, MET.bpm + (+d))); const s = $('#metsl'); if (s) s.value = MET.bpm; const e = $('#metbpm'); if (e) e.textContent = MET.bpm + ' bpm'; };
+ACT.metTap = function () {
+  const t = Date.now(); MET.toques = MET.toques.filter(function (x) { return t - x < 2500; }); MET.toques.push(t);
+  if (MET.toques.length >= 3) {
+    const iv = []; for (let i = 1; i < MET.toques.length; i++) iv.push(MET.toques[i] - MET.toques[i - 1]);
+    const med = iv.reduce(function (a, b) { return a + b; }, 0) / iv.length;
+    MET.bpm = Math.max(40, Math.min(220, Math.round(60000 / med))); const s = $('#metsl'); if (s) s.value = MET.bpm; const e = $('#metbpm'); if (e) e.textContent = MET.bpm + ' bpm';
+  }
+};
+ACT.metGo = function () {
+  Som.init();
+  if (MET.rod) { metParar(); return; }
+  MET.rod = true; $('#metgo').textContent = 'Parar';
+  MET.rel = Relogio();
+  MET.rel.iniciar(function () { return 60000 / MET.bpm; }, function (n, quando) {
+    const p = n % MET.comp; Som.click(quando, p === 0);
+    const b = $('#metbeats'); if (b) Array.prototype.forEach.call(b.children, function (c, i) { c.classList.toggle('on', i === p); });
+  });
+};
+
+/* ---------- PROGRESSO ---------- */
+function vProgresso() {
+  const s = Store.s, p = Store.patente(s.xp), seq = Store.calcSequencia(s.dias, Store.hojeNum());
+  const contar = function (suf) { return DATA.GENEROS.filter(function (g) { return s.done[g.id + suf]; }).length; };
+  const cols = [
+    { n: 'Ouvido', lv: Store.ouvidoNivel() }, { n: 'Ritmo', lv: contar(':levada') }, { n: 'Acordes', lv: contar(':acordes') },
+    { n: 'Repert.', lv: contar(':musica') }, { n: 'Leitura', off: true }, { n: 'Técnica', off: true }
+  ];
+  const linhas = [];
+  for (let r = 1; r <= 8; r++) {
+    linhas.push('<div class="r"><div class="n">' + r + '</div>' + cols.map(function (c) {
+      let k = 'l';
+      if (c.off) k = 'x'; else if (c.lv >= r) k = 'd'; else if (c.lv + 1 === r) k = 'c';
+      return '<div class="s"><span class="nk ' + k + '">' + (k === 'd' ? '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--on-am)" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7"/></svg>' : '') + '</span></div>';
+    }).join('') + '</div>');
+  }
+  return voltarMais + '<div class="row sp" style="margin-top:12px"><div><span class="up am">Seu braço</span><h1>' + esc(p.nome) + '</h1></div><span class="mono dim">patente ' + (p.i + 1) + ' de ' + DATA.PATENTES.length + '</span></div>' +
+    '<div class="row" style="gap:6px;margin-top:10px" aria-hidden="true">' + DATA.PATENTES.map(function (_, i) { return '<div class="grow bar" style="height:6px"><i style="width:' + (i < p.i ? 100 : i === p.i ? Math.round(p.prog * 100) : 0) + '%"></i></div>'; }).join('') + '</div>' +
+    '<p class="small dim" style="margin-top:6px">' + DATA.PATENTES.map(function (x) { return x.nome; }).join(' · ') + '</p>' +
+    '<div class="grid3" style="margin-top:12px"><div class="card" style="margin:0"><span class="up dim">XP</span><h2>' + s.xp + '</h2></div><div class="card" style="margin:0"><span class="up dim">Sequência</span><h2>' + seq + ' d</h2></div><div class="card" style="margin:0"><span class="up dim">Dias</span><h2>' + s.dias.length + '</h2></div></div>' +
+    '<div class="neck"><div class="h"><span></span>' + cols.map(function (c) { return '<span>' + c.n + '</span>'; }).join('') + '</div><div class="nut"></div>' + linhas.join('') + '</div>' +
+    '<div class="row wrap" style="justify-content:center;gap:16px;margin-top:10px;font-size:13px;color:var(--tx2)"><span><span class="nk d" style="display:inline-block;width:12px;height:12px;vertical-align:middle"></span> dominado</span><span><span class="nk c" style="display:inline-block;width:14px;height:14px;vertical-align:middle;border-width:2px"></span> agora</span><span>Leitura e Técnica chegam na próxima fase</span></div>' +
+    '<h2 style="margin-top:24px">Conquistas</h2>' + DATA.CONQUISTAS.map(function (c) {
+      const ok = s.conq[c.id];
+      return '<div class="conq ' + (ok ? 'd' : '') + '"><span class="ic">' + (ok ? '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--on-am)" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7"/></svg>' : '') + '</span><div><b>' + esc(c.nome) + '</b><br><span class="small dim">' + esc(c.desc) + '</span></div></div>';
+    }).join('');
+}
+
+/* ---------- AJUSTES ---------- */
+let confirmaReset = false;
+function vAjustes() {
+  const c = Store.s.cfg;
+  return voltarMais + '<h1 style="margin-top:12px">Ajustes</h1>' +
+    '<div class="card"><label class="small dim" for="anome">Como você quer ser chamado</label><input id="anome" type="text" maxlength="24" value="' + esc(c.nome || Store.boot.nome || '') + '" data-c="aNome" style="width:100%;min-height:46px;border-radius:12px;border:1.5px solid var(--ln2);background:var(--sf);color:var(--tx);padding:8px 12px;font-family:inherit;font-size:16px;margin-bottom:10px"><label class="small dim" for="ainst">Instrumento principal</label><select id="ainst" data-c="aInst"><option value="violao" ' + (c.inst === 'violao' ? 'selected' : '') + '>Violão</option><option value="guitarra" ' + (c.inst === 'guitarra' ? 'selected' : '') + '>Guitarra</option></select>' +
+    '<label class="chk"><input type="checkbox" data-c="aLefty" ' + (c.lefty ? 'checked' : '') + '> Sou canhoto (espelhar diagramas)</label>' +
+    '<label class="small dim" for="atema">Tema</label><select id="atema" data-c="aTema"><option value="auto" ' + (c.tema === 'auto' ? 'selected' : '') + '>Automático</option><option value="dark" ' + (c.tema === 'dark' ? 'selected' : '') + '>Escuro</option><option value="light" ' + (c.tema === 'light' ? 'selected' : '') + '>Claro</option></select>' +
+    '<label class="chk" style="margin-top:6px"><input type="checkbox" data-c="rec" ' + (c.rec ? 'checked' : '') + '> Ouvir o que eu toco (Palco e lições)</label>' +
+    '<label class="small dim" for="aa4">Frequência do Lá (A4), em Hz</label><input id="aa4" type="number" min="415" max="466" value="' + c.a4 + '" data-c="aA4"></div>' +
+    '<div class="card"><h3>Microfone</h3><p class="small dim" style="margin-top:4px">Teste se o seu navegador libera o microfone para o Afinadim. Se falhar, as lições continuam no modo manual.</p>' +
+    '<button class="btn o full" style="margin-top:10px" data-a="testeMic">Testar microfone</button><pre class="log" id="miclog" aria-live="polite">Toque em Testar microfone.</pre></div>' +
+    '<div class="card"><h3>Seus dados</h3><p class="small dim" style="margin-top:4px">O progresso fica na sua conta Google, dentro do Afinadim, e também neste navegador.</p>' +
+    '<div class="row wrap" style="margin-top:10px"><button class="btn o sm" data-a="exportar">Exportar progresso</button><button class="btn g sm" data-a="importarAbrir">Importar</button><button class="btn g sm" style="border-color:var(--br);color:var(--br)" data-a="resetar">' + (confirmaReset ? 'Toque de novo para confirmar' : 'Zerar progresso') + '</button></div>' +
+    '<div id="impbox" class="hide" style="margin-top:10px"><textarea id="imptxt" rows="4" placeholder="Cole aqui o conteúdo exportado"></textarea><button class="btn sm" style="margin-top:8px" data-a="importar">Importar agora</button></div></div>';
+}
+function aplicarTema() {
+  const t = Store.s.cfg.tema, r = document.documentElement;
+  if (t === 'dark' || t === 'light') r.setAttribute('data-theme', t); else r.removeAttribute('data-theme');
+}
+CHG.aNome = function (v) { Store.s.cfg.nome = String(v).trim().slice(0, 24); Store.mudou(); };
+CHG.aInst = function (v) { Store.s.cfg.inst = v; Store.mudou(); };
+CHG.aLefty = function (v, el) { Store.s.cfg.lefty = el.checked; Store.mudou(); };
+CHG.aTema = function (v) { Store.s.cfg.tema = v; aplicarTema(); Store.mudou(); };
+CHG.aA4 = function (v) { const n = +v; if (n >= 415 && n <= 466) { Store.s.cfg.a4 = n; Store.mudou(); } };
+ACT.testeMic = async function () {
+  const log = $('#miclog'), L = [];
+  const mostra = function () { log.textContent = L.join('\n'); };
+  L.push('Contexto seguro (https): ' + window.isSecureContext);
+  L.push('Dentro de iframe: ' + (window.top !== window.self));
+  L.push('mediaDevices.getUserMedia: ' + !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia));
+  try { const pp = document.permissionsPolicy || document.featurePolicy; if (pp && pp.allowsFeature) L.push('Política permite microfone: ' + pp.allowsFeature('microphone')); } catch (e) { /* sem suporte */ }
+  mostra(); Mic.parar(); Som.init();
+  const ok = await Mic.iniciar();
+  L.push('RESULTADO: ' + (ok ? 'OK, microfone liberado' : 'FALHOU - ' + Mic.erro + ': ' + Mic.msg)); mostra();
+  if (ok) {
+    L.push('Toque uma corda agora (3 segundos)...'); mostra();
+    let melhor = null, pico = 0; const t0 = Date.now();
+    await new Promise(function (res) {
+      const id = setInterval(function () { const r = Mic.altura(); pico = Math.max(pico, r.rms); if (r.freq && r.clarity > 0.88) melhor = r; if (Date.now() - t0 > 3000) { clearInterval(id); res(); } }, 60);
+    });
+    L.push('Volume máximo: ' + pico.toFixed(3) + (pico < 0.01 ? ' (muito baixo: aproxime o instrumento)' : ''));
+    L.push(melhor ? 'Nota ouvida: ' + DSP.noteInfo(melhor.freq, a4()).nome + ' (' + melhor.freq.toFixed(1) + ' Hz)' : 'Nenhuma nota estável detectada.');
+    Mic.parar();
+  }
+  L.push('Navegador: ' + navigator.userAgent); mostra();
+};
+ACT.exportar = function () {
+  const js = JSON.stringify(Store.s);
+  try {
+    const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([js], { type: 'application/json' })); a.download = 'afinadim-progresso.json'; document.body.appendChild(a); a.click(); a.remove();
+  } catch (e) { /* ignora */ }
+  const box = $('#impbox'); box.classList.remove('hide'); $('#imptxt').value = js; toast('Copie o texto abaixo se o download não iniciar.');
+};
+ACT.importarAbrir = function () { $('#impbox').classList.remove('hide'); };
+ACT.importar = function () {
+  const t = $('#imptxt').value.trim();
+  try { const o = JSON.parse(t); if (!o || o.v !== 1) throw new Error('formato'); o.t = Date.now(); Store.carregar(JSON.stringify(o), null); Store.mudou(); Store.salvar(true); aplicarTema(); toast('Progresso importado.'); render(); }
+  catch (e) { toast('Conteúdo inválido.'); }
+};
+ACT.resetar = function () {
+  if (!confirmaReset) { confirmaReset = true; render(); setTimeout(function () { confirmaReset = false; }, 4000); return; }
+  confirmaReset = false; Store.reset(); aplicarTema(); toast('Progresso zerado.'); render();
+};
+
+/* ---------- SOBRE ---------- */
+function vSobre() {
+  return voltarMais + '<h1 style="margin-top:12px">Afinadim</h1><p class="dim">Violão e guitarra que escutam você. Versão 0.1 (primeira entrega).</p>' +
+    '<div class="card"><h3>Privacidade</h3><p class="small" style="margin-top:6px">O áudio do microfone é analisado no seu aparelho e nunca é gravado nem enviado. O que fica salvo é o seu progresso (XP, lições, configurações), na sua conta Google dentro do Afinadim e neste navegador.</p></div>' +
+    '<div class="card"><h3>Conteúdo</h3><p class="small" style="margin-top:6px">Músicas, letras e lições são originais do projeto. Os padrões de levada são estudos base e serão revisados com músicos. Os dados de popularidade dos gêneros vêm da pesquisa Globo/Quaest (2026) e dos rankings Pro-Música/BMAT.</p></div>' +
+    '<div class="card"><h3>Tecnologia</h3><p class="small" style="margin-top:6px">Código próprio: detecção de altura (método McLeod), reconhecimento de acordes por croma e síntese de som no navegador, sem vídeo e sem bibliotecas externas. Fontes: Bricolage Grotesque, Instrument Sans e JetBrains Mono (licença OFL).</p></div>';
+}
+
+/* ===== APP: inicialização e eventos ===== */
+document.addEventListener('click', function (e) {
+  const el = e.target.closest('[data-a]');
+  if (!el || el.disabled) return;
+  const fn = ACT[el.dataset.a];
+  if (fn) { try { fn(el.dataset.p, el, e); } catch (err) { console.error(err); toast('Algo deu errado: ' + err.message); } }
+});
+document.addEventListener('input', function (e) {
+  const el = e.target.closest('[data-i]');
+  if (el && INP[el.dataset.i]) INP[el.dataset.i](el.value, el, e);
+});
+document.addEventListener('change', function (e) {
+  const el = e.target.closest('[data-c]');
+  if (el && CHG[el.dataset.c]) { try { CHG[el.dataset.c](el.value, el, e); } catch (err) { console.error(err); } }
+});
+ACT.go = function (p) {
+  const i = p.indexOf('|');
+  if (i < 0) go(p, null); else go(p.slice(0, i), p.slice(i + 1));
+};
+
+function iniciarApp(b) {
+  b = b || {};
+  Store.setBoot({ email: b.email || '', nome: b.nome || '' });
+  let local = null;
+  try { local = localStorage.getItem('afinadim_p_' + (b.email || '')); } catch (e) { /* sem acesso */ }
+  Store.carregar(b.progress || null, local);
+  aplicarTema();
+  Store.aoConquistar = function (id) {
+    const c = DATA.CONQUISTAS.find(function (x) { return x.id === id; });
+    if (c) setTimeout(function () { toast('Conquista: ' + c.nome); }, 400);
+  };
+  Store.onChange(function () { chrome(); });
+  const bt = $('#boot'); if (bt) bt.remove();
+  $('#shell').classList.remove('hide');
+  go('hoje');
+  document.addEventListener('visibilitychange', function () { if (document.hidden) Store.salvar(true); });
+  window.addEventListener('pagehide', function () { Store.salvar(true); });
+  Store.salvar(true);
+}
+(function boot() {
+  const falha = function (e) {
+    const bt = $('#boot'); if (bt) bt.querySelector('p').textContent = 'Não consegui carregar o seu perfil (' + (e && e.message ? e.message : 'sem conexão') + '). Abrindo no modo local.';
+    setTimeout(function () { iniciarApp({ email: 'local', nome: 'músico' }); }, 900);
+  };
+  if (typeof google !== 'undefined' && google.script && google.script.run) {
+    google.script.run.withSuccessHandler(iniciarApp).withFailureHandler(falha).getBoot();
+  } else iniciarApp({ email: 'local', nome: 'músico' });
+})();
+
+</script>
+</body>
+</html>
